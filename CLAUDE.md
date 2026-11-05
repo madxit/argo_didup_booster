@@ -24,10 +24,7 @@ La cartella è stata lasciata **senza git** su richiesta dell'utente, che la spo
    - Spostando la cartella l'id cambia e la nuova installazione parte vuota.
 2. **Spostare la cartella.** In `chrome://extensions` rimuovere la vecchia voce, che punta al percorso che non esiste più. Poi *Carica estensione non pacchettizzata* dal nuovo percorso e infine Impostazioni → *Importa* → *Sostituisci tutto*.
 3. **Nel repository:**
-   - `.gitignore` è già pronto (`build-info.json`, `.DS_Store`, `desktop.ini`).
-   - Attivare gli hook con `git config core.hooksPath tools/git-hooks`. Il percorso è relativo alla radice del repository: se l'estensione sta in una sottocartella, usare `<sottocartella>/tools/git-hooks`. Gli hook funzionano comunque, perché trovano lo script partendo dalla propria posizione.
-   - Dopo il primo commit, l'hook `post-commit` scrive `build-info.json`. A mano: `node tools/build-info.mjs`.
-   - Provato il 5/11/2026 su una copia, con l'estensione in una sottocartella: `build-info.json` riceve commit e data, git lo ignora, e la sezione Informazioni mostra «9f60dde» e «5 novembre 2026 alle ore 12:22».
+   - `.gitignore` è già pronto (`.DS_Store`, `desktop.ini`). Gli hook git per commit e data (`tools/`, `build-info.json`) sono stati tolti nella 1.0.1: non servono più.
 4. **Facoltativo ma consigliato:** aggiungere `"key"` al manifest. L'id resta così fisso anche cambiando cartella o computer. Va fatto insieme a un export/import, perché anche aggiungere la chiave cambia l'id una volta.
 5. **Aggiornare questo file:** percorso, id dell'estensione (si trova in `chrome://extensions` o in `Secure Preferences`) e la riga "Non è un repository git".
 6. **Cartella dei file rimossi.** `ArgoDidUP-Extension - file rimossi/` è accanto alla cartella vecchia: non va nel repository, l'utente decide se tenerla.
@@ -40,7 +37,7 @@ La cartella è stata lasciata **senza git** su richiesta dell'utente, che la spo
 - **Pubblico.** Docenti italiani di qualunque scuola. Niente dati di una scuola specifica nel codice: l'estensione originale era scritta per l'ITT Buzzi (codice `SG18328`), poi è stata resa generica.
 - **Nome: «Argo DidUP Booster»** (fino alla 2.6 si chiamava «ArgoDidUP Assistant» / «Argo Assistant»). La cartella resta `ArgoDidUP-Extension`: cambiarla cambierebbe l'id dell'estensione e l'utente perderebbe le impostazioni.
 - **Identificatori interni.** Sono rimasti con il prefisso storico `argo-assistant` (`data-argo-assistant*`, eventi `argo-assistant:request:v3`, `dataset.argoAssistant*`, `__argoAssistant*`). Non si vedono e cambiarli lascerebbe doppioni nelle schede già aperte.
-- **Versione attuale: 1.0.0.** La numerazione è ripartita da 1.0.0 con il cambio di nome (prima era 2.6). **Alzare `version` in `manifest.json` a ogni modifica del codice** (`MAJOR.MINOR.PATCH`): la ricarica automatica scatta quando la versione su disco è *diversa* da quella caricata, quindi va bene anche il passaggio 2.6 → 1.0.0.
+- **Versione attuale: 1.0.1.** La numerazione è ripartita da 1.0.0 con il cambio di nome (prima era 2.6). **Alzare `version` in `manifest.json` a ogni modifica del codice** (`MAJOR.MINOR.PATCH`): la ricarica automatica scatta quando la versione su disco è *diversa* da quella caricata, quindi va bene anche il passaggio 2.6 → 1.0.0.
 - **File tolti nella revisione.** Stanno nella cartella sorella `ArgoDidUP-Extension - file rimossi/`:
   - i `desktop.ini` di Google Drive;
   - `images/logo-didup.png`, non usato;
@@ -56,9 +53,7 @@ La cartella è stata lasciata **senza git** su richiesta dell'utente, che la spo
 | `settings.js` | Modulo condiviso da service worker, popup, impostazioni e content script (variabili `var` di primo livello, così si può reiniettare). Contiene: `DEFAULT_SETTINGS`, `SPID_PROVIDERS` (12 id), validazione ed import/export, riconoscimento degli URL (`isArgoDashboardUrl` = percorso `/voti*`), `loginFlow`, `reloadIfStale()`. |
 | `background.js` | Service worker: badge "!" se manca il codice, popup solo nelle schede del registro, `goToRegistro()`, controllo della sessione nelle schede aperte, iniezione degli script dopo un aggiornamento, ripresa dopo la ricarica automatica. |
 | `popup.html/js`, `style.css` | Popup (320 px): riquadri Firma/Appello, stato della sessione, pannello dei passi con domanda di conferma; viste di ripiego "login" e "fuori da Argo". |
-| `options.html/js/css` | Impostazioni, salvate a ogni modifica: scuola e accesso, sessione, discipline con due elenchi ordinabili (schede "Argomenti" e "Compiti", `currentKind`), export/import JSON (`argo-didup-booster-impostazioni-AAAA-MM-GG.json`), URL avanzati, **Informazioni** (nome e versione dal manifest, commit e data da `build-info.json`). |
-| `build-info.json` | Generato da `tools/build-info.mjs`: `{commit, commitDate, generatedAt}`, oppure `commit: null` se la cartella non è sotto git. |
-| `tools/` | `build-info.mjs` e `git-hooks/` (post-commit, post-checkout, post-merge, post-rewrite → rigenerano `build-info.json`; attivi con `git config core.hooksPath tools/git-hooks`). Non fa parte dell'estensione. |
+| `options.html/js/css` | Impostazioni, salvate a ogni modifica: scuola e accesso, sessione, discipline con due elenchi ordinabili (schede "Argomenti" e "Compiti", `currentKind`), export/import JSON (`argo-didup-booster-impostazioni-AAAA-MM-GG.json`), URL avanzati. La **versione** (dal manifest) è nella barra in cima (`#info-version`). |
 | `page-bridge.js` | Script nel **mondo MAIN**: unico punto che usa gli oggetti di DidUP (Ext JS). Canale versionato `argo-assistant:request:v3` / `response:v3`. Funzioni: `session`, `ping`, `info`, `fields`, `insert`, `dashboardLessons`, `registroLessons`, `goHome`, `viewVisible`. |
 | `content-common.js` | `callPageBridge()`, `waitForElement()`, `assistantToast` (shadow DOM; `actions`, `onDismiss`), `PAGE_BRIDGE_CHANNEL='v3'`. |
 | `login.js` | Pagine Argo: compila `#customer_code` e preme `a.button-spid`; sceglie il profilo (`.selectable-identity`); chiude `loginFlow` quando il registro ha le credenziali; anti-ripetizione di 90 s con "Riprova". |
@@ -206,6 +201,7 @@ Servono Node 20+ (provato con la 26) e Google Chrome. Tutto in `tests/`: profili
 | 2.5 | Conferma prima di firmare un'ora fuori dalla sua fascia oraria; README con immagini; CLAUDE.md; nuova icona; test spostati in `tests/`; ricarica automatica anche al clic sull'icona; pulizia dei file. |
 | 2.6 | Tornata l'icona originale. Per ogni disciplina anche un elenco **Compiti**, oltre agli Argomenti, nelle impostazioni e nel pannello del registro. Nel menu delle discipline solo il nome. Le caselle si riconoscono dal campo DidUP collegato (correzione del doppio "Compiti"). Canale del ponte `v3`. |
 | 1.0.0 | Nuovo nome «Argo DidUP Booster» e numerazione ripartita da 1.0.0 (dopo la 2.6). Sezione **Informazioni** nelle impostazioni (versione, commit, data del commit) con `tools/build-info.mjs`. Verificato il mantenimento della sessione con il ping: funziona, entrambi i metodi restano. |
+| 1.0.1 | Versione in cima alle impostazioni; tolti commit e data (sezione Informazioni, `build-info.json`, `tools/` con gli hook git: spostati in `argo_didup_booster - file rimossi/`). Testo del codice scuola: «prima dell'accesso con SPID o CIE». README: installazione dallo zip dell'ultima release. |
 
 ## Punti aperti (non verificati sul registro vero)
 

@@ -307,23 +307,10 @@ s = await store();
 check(s.codiceScuola === 'AB99999' && s.discipline.map(d => d.nome).join('|') === 'Storia|Fisica|Matematica' &&
   s.discipline.some(d => d.compiti.includes('Studiare il capitolo 3')), 'import "aggiungi argomenti e compiti" unisce senza toccare il codice scuola', JSON.stringify(s.discipline));
 
-// ---- Informazioni ----
+// ---- Versione in cima alla pagina ----
 const manifest = JSON.parse(fs.readFileSync(path.join(EXT, 'manifest.json'), 'utf8'));
-const buildInfo = fs.existsSync(path.join(EXT, 'build-info.json')) ? JSON.parse(fs.readFileSync(path.join(EXT, 'build-info.json'), 'utf8')) : null;
-const info = await evaluate(`return ['info-name', 'info-version', 'info-commit', 'info-commit-date'].map(id => document.getElementById(id).textContent)`);
-check(info[0] === 'Argo DidUP Booster' && info[1] === manifest.version && manifest.version === '1.0.0', 'Informazioni: nome «Argo DidUP Booster» e versione 1.0.0', JSON.stringify(info));
-check(buildInfo && buildInfo.commit ? info[2] === buildInfo.commit.slice(0, 7) && info[3] !== '—' : info[2] === 'non disponibile' && info[3] === 'non disponibile',
-  'Informazioni: commit e data dal file build-info.json (o «non disponibile» senza git)', JSON.stringify({ info, buildInfo }));
-// con git: commit e data letti da build-info.json (scritto dall'hook dopo il commit)
-fs.writeFileSync(path.join(EXT, 'build-info.json'), JSON.stringify({ commit: '9f60dde83241503de209e9a5e37f791b76aed08f', commitDate: '2026-11-05T12:22:24+01:00' }));
-await navigate(`${BASE}/ext/options.html`, 600);
-const info2 = await evaluate(`return { c: document.getElementById('info-commit').textContent, full: document.getElementById('info-commit').title,
-  d: document.getElementById('info-commit-date').textContent, hint: document.getElementById('info-hint').hidden }`);
-check(info2.c === '9f60dde' && info2.full.length === 40 && /5 novembre 2026/.test(info2.d) && /12:22/.test(info2.d) && info2.hint,
-  'Informazioni con git: commit 9f60dde (completo nel tooltip) e data «5 novembre 2026, 12:22»', JSON.stringify(info2));
-await evaluate(`document.getElementById('sec-info').scrollIntoView()`);
-await shot('07-informazioni');
-fs.unlinkSync(path.join(EXT, 'build-info.json'));
+const ver = await evaluate(`return { v: document.getElementById('info-version').textContent, info: !!document.getElementById('sec-info'), commit: !!document.getElementById('info-commit') }`);
+check(ver.v === 'v' + manifest.version && !ver.info && !ver.commit, `Versione in cima alle impostazioni (v${manifest.version}), niente sezione commit`, JSON.stringify(ver));
 
 // ---- Import: file non valido ----
 const badFile = path.join(workDir('files'), 'bad.json');
