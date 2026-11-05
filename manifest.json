@@ -1,0 +1,75 @@
+{
+  "manifest_version": 3,
+  "name": "Argo DidUP Booster",
+  "version": "1.0.0",
+  "description": "Argo DidUP Booster: accesso automatico con SPID o CIE, Firma e Appello con un clic, i tuoi argomenti e compiti nel registro e sessione sempre attiva.",
+  "permissions": [
+    "storage",
+    "activeTab",
+    "scripting",
+    "clipboardWrite"
+  ],
+  "host_permissions": [
+    "https://*.portaleargo.it/*",
+    "https://eid.istruzione.it/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Argo DidUP Booster — accedi al registro",
+    "default_icon": {
+      "16": "icon/icon16.png",
+      "32": "icon/icon32.png",
+      "48": "icon/icon48.png",
+      "128": "icon/icon128.png"
+    }
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.portaleargo.it/*"
+      ],
+      "js": [
+        "page-bridge.js"
+      ],
+      "world": "MAIN",
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://*.portaleargo.it/*"
+      ],
+      "js": [
+        "settings.js",
+        "content-common.js",
+        "login.js",
+        "keepalive.js",
+        "argomenti.js",
+        "azioni.js"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://eid.istruzione.it/eid-gateway/*"
+      ],
+      "js": [
+        "settings.js",
+        "content-common.js",
+        "eid.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icon/icon16.png",
+    "32": "icon/icon32.png",
+    "48": "icon/icon48.png",
+    "128": "icon/icon128.png"
+  }
+}
