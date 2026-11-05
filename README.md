@@ -38,12 +38,17 @@ Estensione per **Google Chrome** pensata per i docenti che usano il registro ele
 
 L'estensione non è sul Chrome Web Store: si installa da una cartella, come "estensione non pacchettizzata". Bastano pochi minuti.
 
-1. **Copia la cartella** `ArgoDidUP-Extension` sul computer, in una posizione dove resterà (es. *Documenti*). Se l'hai ricevuta come file `.zip`, estraila prima. **Non cancellarla dopo l'installazione**: Chrome legge i file direttamente da lì.
-2. Apri Chrome e scrivi nella barra degli indirizzi: `chrome://extensions`
-3. In alto a destra attiva **Modalità sviluppatore**.
-4. Premi **Carica estensione non pacchettizzata** e seleziona la cartella `ArgoDidUP-Extension`, cioè quella che contiene il file `manifest.json`.
-5. Fissa l'icona nella barra: premi l'icona a forma di **puzzle** in alto a destra, poi la **puntina** accanto ad *Argo DidUP Booster*.
-6. Si apre da sola la pagina delle **Impostazioni**: continua con la [prima configurazione](#prima-configurazione).
+1. **Scarica l'ultima versione.** Apri la pagina dell'[**ultima release**](https://github.com/madxit/argo_didup_booster/releases/latest) e, sotto *Assets*, premi **Source code (zip)**. Se la pagina è vuota, scegli la versione più recente dall'[elenco dei tag](https://github.com/madxit/argo_didup_booster/tags) e premi **zip**.
+2. **Estrai il file zip** (doppio clic su Mac; su Windows tasto destro → *Estrai tutto*). Ottieni una cartella `argo_didup_booster-Release-X.Y.Z`, dove `X.Y.Z` è la versione.
+3. **Sposta la cartella in una posizione che non cambierà nel tempo** e **non cancellarla dopo l'installazione**: Chrome legge i file direttamente da lì. Se la sposti o la rinomini, Chrome la considera un'estensione nuova e le impostazioni ripartono da zero. Consiglio:
+   - crea una cartella **`Estensioni Chrome`** nella tua cartella personale: su Mac è quella con la casetta (nel Finder: *Vai → Inizio*), su Windows `C:\Users\<tuo nome>\`;
+   - mettici dentro la cartella estratta e **rinominala** `argo_didup_booster`, senza il numero di versione: così gli aggiornamenti andranno sempre nella stessa cartella;
+   - evita *Download*, *Scrivania* e le cartelle sincronizzate (iCloud, OneDrive, Google Drive): vengono svuotate o spostate più facilmente. Su Windows evita anche *Programmi*, che richiede i permessi di amministratore.
+4. Apri Chrome e scrivi nella barra degli indirizzi: `chrome://extensions`
+5. In alto a destra attiva **Modalità sviluppatore**.
+6. Premi **Carica estensione non pacchettizzata** e seleziona la cartella `argo_didup_booster` del passo 3, cioè quella che contiene il file `manifest.json`.
+7. Fissa l'icona nella barra: premi l'icona a forma di **puzzle** in alto a destra, poi la **puntina** accanto ad *Argo DidUP Booster*.
+8. Si apre da sola la pagina delle **Impostazioni**: continua con la [prima configurazione](#prima-configurazione).
 
 > **Nota.** Lascia attiva la *Modalità sviluppatore*: Chrome la richiede per le estensioni installate da una cartella. Può capitare che mostri un avviso sulle estensioni in modalità sviluppatore: è normale.
 
@@ -163,11 +168,11 @@ Mentre il registro è aperto, l'estensione fa ogni tanto una richiesta leggera e
 
 ## Versione e informazioni
 
-In fondo alle **Impostazioni**, la sezione **Informazioni** riporta nome, **versione**, **commit** e **data del commit** della copia installata. Servono quando chiedi aiuto o devi controllare di avere l'ultima versione.
+In cima alle **Impostazioni**, accanto al nome, c'è la **versione** installata (es. `v1.0.1`). Ti serve quando chiedi aiuto o devi controllare di avere l'ultima versione: confrontala con quella dell'[ultima release](https://github.com/madxit/argo_didup_booster/releases/latest).
 
 ## Aggiornare l'estensione
 
-1. Sostituisci i file nella **stessa cartella** usata per l'installazione, con la nuova versione.
+1. Scarica ed estrai l'[ultima release](https://github.com/madxit/argo_didup_booster/releases/latest) come al momento dell'installazione, poi copia **il contenuto** della cartella estratta nella **stessa cartella** usata per l'installazione (`argo_didup_booster`), sostituendo i file. Non caricare la nuova cartella come seconda estensione: le impostazioni non la seguirebbero.
 2. Premi l'icona dell'estensione oppure apri il popup o le Impostazioni. L'estensione si accorge che i file sono cambiati e **si ricarica da sola**, poi prosegue con quello che stavi facendo. Il popup, se era aperto, si chiude un attimo: riaprilo.
 3. Se non succede, vai su `chrome://extensions` e premi **Ricarica** (la freccia circolare) su *Argo DidUP Booster*.
 
@@ -201,5 +206,4 @@ In fondo alle **Impostazioni**, la sezione **Informazioni** riporta nome, **vers
 - **Test.** Servono Node.js 20+ e Google Chrome. Si lanciano con `node tests/run-all.mjs`; con `--reali` provano anche l'accesso sulle pagine vere di Argo e del Ministero, fermandosi alla pagina del provider e senza credenziali.
 - **Immagini di questa guida.** Si rigenerano con `node tests/screenshots.mjs`.
 - **Versione.** A ogni modifica aumenta `version` in `manifest.json` (numerazione `MAJOR.MINOR.PATCH`, partita da 1.0.0): è così che l'estensione già installata si accorge dell'aggiornamento e si ricarica.
-- **Commit nella sezione Informazioni.** `node tools/build-info.mjs` scrive `build-info.json` con commit e data. Con `git config core.hooksPath tools/git-hooks` lo fa da solo dopo ogni commit, checkout, merge e rebase.
-- **Cartelle `tests/` e `tools/`.** Non servono all'estensione e possono essere escluse quando la distribuisci.
+- **Cartella `tests/`.** Non serve all'estensione e può essere esclusa quando la distribuisci.
