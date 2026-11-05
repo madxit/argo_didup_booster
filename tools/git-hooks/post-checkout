@@ -1,0 +1,4 @@
+#!/bin/sh
+# Aggiorna build-info.json (commit e data mostrati nelle impostazioni).
+# Percorso relativo all'hook: funziona anche se l'estensione è una sottocartella del repository.
+node "$(dirname "$0")/../build-info.mjs" >/dev/null 2>&1 || true

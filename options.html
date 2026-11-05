@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Impostazioni — Argo DidUP Booster</title>
+  <link rel="icon" href="icon/icon32.png">
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <header class="topbar">
+    <img src="icon/icon128.png" alt="" class="topbar-icon">
+    <div class="topbar-title">
+      <h1>Argo DidUP Booster</h1>
+      <p>Impostazioni</p>
+    </div>
+    <span id="save-indicator" class="save-indicator" aria-live="polite">✓ Salvato</span>
+  </header>
+
+  <main>
+    <div id="missing-code-banner" class="banner banner-error" hidden>
+      <strong>⚠️ Codice scuola non impostato.</strong>
+      Inseriscilo qui sotto per poter usare l'accesso automatico ad Argo.
+    </div>
+
+    <!-- ============ SCUOLA E ACCESSO ============ -->
+    <section class="card" id="sec-scuola">
+      <h2>🏫 Scuola e accesso</h2>
+      <div class="grid-2">
+        <div class="field">
+          <label for="codiceScuola">Codice scuola Argo <span class="req">*</span></label>
+          <input id="codiceScuola" class="mono" autocomplete="off" spellcheck="false" maxlength="16" placeholder="es. SG12345">
+          <p class="hint">Il codice che inserisci nella pagina di accesso di Argo, prima di SPID.</p>
+          <p class="error" id="codiceScuola-error" hidden></p>
+        </div>
+        <div class="field">
+          <label for="docenteNome">Cognome e nome del docente</label>
+          <input id="docenteNome" autocomplete="off" placeholder="es. ROSSI MARIO">
+          <p class="hint">Facoltativo: compare nel popup. "Firma ora" riconosce da sola le tue ore (icone arancioni del registro).</p>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <fieldset class="field">
+          <legend>Entro con</legend>
+          <div class="segmented" role="radiogroup">
+            <label><input type="radio" name="loginMethod" value="spid"><span>SPID</span></label>
+            <label><input type="radio" name="loginMethod" value="cie"><span>CIE</span></label>
+          </div>
+        </fieldset>
+        <div class="field" id="spid-provider-field">
+          <label for="spidProvider">Provider SPID</label>
+          <select id="spidProvider"></select>
+          <p class="hint">Lo stesso che scegli nella pagina del Ministero (eid.istruzione.it).</p>
+        </div>
+      </div>
+
+      <label class="switch-row">
+        <input type="checkbox" id="autoLogin" class="switch">
+        <span>Accesso automatico quando si apre la pagina di accesso di Argo</span>
+      </label>
+      <p class="hint">
+        Un clic sull'icona dell'estensione (da qualsiasi scheda) apre Argo, compila il codice scuola,
+        preme "SPID - CIE - EIDAS" e sceglie il provider o la CIE: a te resta solo l'autenticazione con
+        l'app del provider o la CIE. Se il registro è già aperto lo mostra; se la sessione è scaduta
+        rifà l'accesso. Dentro il registro, invece, l'icona apre il popup con Firma e Appello.
+        Le impostazioni si aprono anche con il tasto destro sull'icona → Opzioni.
+      </p>
+    </section>
+
+    <!-- ============ SESSIONE ============ -->
+    <section class="card" id="sec-sessione">
+      <h2>🔄 Sessione</h2>
+      <label class="switch-row">
+        <input type="checkbox" id="keepAliveEnabled" class="switch">
+        <span>Mantieni attiva la sessione dopo l'accesso con SPID</span>
+      </label>
+
+      <div id="keepalive-options">
+        <div class="field">
+          <label for="keepAliveInterval">Intervallo di refresh</label>
+          <div class="inline">
+            <input type="number" id="keepAliveInterval" min="30" max="3600" step="10" class="narrow">
+            <span>secondi</span>
+            <span id="interval-human" class="muted"></span>
+          </div>
+          <p class="hint">Tra 30 e 3600 secondi. Valore consigliato: 240 (4 minuti).</p>
+        </div>
+
+        <fieldset class="field">
+          <legend>Metodo</legend>
+          <label class="radio">
+            <input type="radio" name="keepAliveMethod" value="ping">
+            <span><strong>Ping silenzioso</strong> <span class="badge">consigliato</span><br>
+              Fa una richiesta leggera al server di Argo con la tua sessione, come farebbe il registro: la pagina
+              non viene ricaricata e non perdi quello che stai scrivendo.</span>
+          </label>
+          <label class="radio">
+            <input type="radio" name="keepAliveMethod" value="reload">
+            <span><strong>Ricarica la pagina</strong><br>
+              Ricarica la scheda di Argo, ma solo se non la stai usando e non hai digitato nulla; altrimenti esegue un ping.</span>
+          </label>
+        </fieldset>
+      </div>
+
+      <p class="hint">
+        Si attiva solo dentro il registro (dopo l'accesso), finché la scheda di Argo resta aperta.
+        Se la scheda è in background Chrome può eseguire il refresh al massimo una volta al minuto.
+        Se la sessione scade comunque, riduci l'intervallo o passa a "Ricarica la pagina".
+      </p>
+      <p id="keepalive-status" class="status-line"></p>
+    </section>
+
+    <!-- ============ DISCIPLINE E ARGOMENTI ============ -->
+    <section class="card" id="sec-argomenti">
+      <h2>📚 Discipline, argomenti e compiti</h2>
+      <p class="hint">
+        Per ogni disciplina puoi preparare due elenchi: gli <strong>argomenti</strong> delle lezioni e i
+        <strong>compiti</strong> da assegnare. Trascina la maniglia <span class="kbd">⠿</span> o usa le frecce
+        per ordinarli; doppio clic su una voce per modificarla. Nel registro, quando modifichi una lezione, accanto a
+        <em>Registro di classe · Docenti ed alunni</em> trovi il pulsante <strong>Argomenti e compiti</strong>:
+        un argomento va in "Attività svolta", un compito in "Compiti". Se il nome della disciplina corrisponde
+        alla materia della lezione (anche come sigla, es. "TPSIT"), viene proposta in automatico.
+      </p>
+
+      <div class="topics-layout">
+        <div class="pane">
+          <div class="pane-head"><h3>Discipline</h3></div>
+          <form id="add-disciplina-form" class="add-row">
+            <input id="new-disciplina" autocomplete="off" placeholder="Nuova disciplina (es. Matematica)">
+            <button type="submit" class="btn primary">Aggiungi</button>
+          </form>
+          <ul id="discipline-list" class="sortable-list"></ul>
+          <p id="discipline-empty" class="empty">Nessuna disciplina.</p>
+        </div>
+
+        <div class="pane">
+          <div class="pane-head">
+            <h3 id="argomenti-title">Disciplina</h3>
+            <button id="sort-az" class="btn small" type="button" title="Ordina alfabeticamente">Ordina A→Z</button>
+          </div>
+          <div id="argomenti-body">
+            <div class="kind-tabs" role="tablist" aria-label="Elenco">
+              <button type="button" role="tab" class="kind-tab" data-kind="argomenti" aria-selected="true">
+                Argomenti <span class="kind-count" id="count-argomenti">0</span></button>
+              <button type="button" role="tab" class="kind-tab" data-kind="compiti" aria-selected="false">
+                Compiti <span class="kind-count" id="count-compiti">0</span></button>
+            </div>
+            <p class="hint kind-hint" id="kind-hint"></p>
+            <form id="add-argomenti-form" class="add-block">
+              <textarea id="new-argomenti" rows="3"></textarea>
+              <div class="add-actions">
+                <span class="hint">Invio per aggiungere · Maiusc+Invio per andare a capo</span>
+                <button type="submit" class="btn primary">Aggiungi</button>
+              </div>
+            </form>
+            <ul id="argomenti-list" class="sortable-list"></ul>
+            <p id="argomenti-empty" class="empty"></p>
+          </div>
+          <p id="argomenti-nodisc" class="empty">Aggiungi o seleziona una disciplina.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ BACKUP ============ -->
+    <section class="card" id="sec-backup">
+      <h2>💾 Esporta / Importa</h2>
+      <p class="hint">
+        Salva tutte le impostazioni (codice scuola, sessione, discipline con argomenti e compiti) in un file JSON,
+        per farne un backup o trasferirle su un altro computer.
+      </p>
+      <div class="btn-row">
+        <button id="export-btn" class="btn primary" type="button">⬇️ Esporta impostazioni</button>
+        <button id="import-btn" class="btn" type="button">⬆️ Importa impostazioni…</button>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
+      </div>
+      <div id="backup-msg" class="status-line"></div>
+    </section>
+
+    <!-- ============ AVANZATE ============ -->
+    <details class="card advanced" id="sec-avanzate">
+      <summary>⚙️ Avanzate</summary>
+      <p class="hint">Da modificare solo se Argo cambia gli indirizzi del portale.</p>
+      <div class="field">
+        <label for="argoLoginUrl">URL pagina di accesso</label>
+        <input type="url" id="argoLoginUrl" class="mono">
+      </div>
+      <div class="field">
+        <label for="argoDashboardPattern">URL del registro (dopo l'accesso)</label>
+        <input type="url" id="argoDashboardPattern" class="mono">
+      </div>
+      <div class="field">
+        <label for="basePortalUrl">URL del portale (pulsante "Vai al portale")</label>
+        <input type="url" id="basePortalUrl" class="mono">
+      </div>
+      <p class="error" id="url-error" hidden></p>
+      <button id="reset-urls" class="btn small" type="button">Ripristina indirizzi predefiniti</button>
+    </details>
+
+    <!-- ============ INFORMAZIONI ============ -->
+    <section class="card" id="sec-info">
+      <h2>ℹ️ Informazioni</h2>
+      <dl class="kv">
+        <div><dt>Nome</dt><dd id="info-name">—</dd></div>
+        <div><dt>Versione</dt><dd id="info-version" class="mono">—</dd></div>
+        <div><dt>Commit</dt><dd id="info-commit" class="mono">—</dd></div>
+        <div><dt>Data del commit</dt><dd id="info-commit-date">—</dd></div>
+      </dl>
+      <p class="hint" id="info-hint" hidden></p>
+    </section>
+  </main>
+
+  <dialog id="choice-dialog">
+    <form method="dialog">
+      <p id="choice-msg"></p>
+      <div id="choice-buttons" class="btn-row end"></div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite">
+    <span id="toast-msg"></span>
+    <button id="toast-action" class="toast-action" type="button" hidden></button>
+  </div>
+
+  <script src="settings.js"></script>
+  <script src="options.js"></script>
+</body>
+</html>
