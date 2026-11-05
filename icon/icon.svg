@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+  </defs>
+  <!-- Sfondo -->
+  <rect x="4" y="4" width="120" height="120" rx="26" fill="url(#bg)"/>
+  <!-- Asta e bandiera -->
+  <rect x="62" y="14" width="4" height="24" rx="1.5" fill="#ffffff"/>
+  <path d="M66 15 L84 20.5 L66 26 Z" fill="#fbbf24"/>
+  <!-- Frontone -->
+  <path d="M18 60 L64 34 L110 60 Z" fill="#ffffff" stroke="#ffffff" stroke-width="4" stroke-linejoin="round"/>
+  <circle cx="64" cy="50" r="5" fill="#1d4ed8"/>
+  <!-- Corpo dell'edificio -->
+  <rect x="26" y="60" width="76" height="42" fill="#ffffff"/>
+  <!-- Finestre -->
+  <rect x="34" y="68" width="14" height="14" rx="2" fill="#1d4ed8"/>
+  <rect x="80" y="68" width="14" height="14" rx="2" fill="#1d4ed8"/>
+  <!-- Porta ad arco -->
+  <path d="M55 102 V82 a9 9 0 0 1 18 0 V102 Z" fill="#1d4ed8"/>
+  <!-- Gradino -->
+  <rect x="18" y="100" width="92" height="10" rx="3" fill="#ffffff"/>
+</svg>

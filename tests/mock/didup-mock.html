@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html lang="it"><head><meta charset="utf-8"><title>DidUP finto</title>
+<style>
+  body { font: 13px system-ui, sans-serif; margin: 0; display: flex; }
+  #menu { width: 200px; background: #234e66; color: #fff; min-height: 100vh; }
+  .x-treelist-root-container, .x-treelist-container { list-style: none; margin: 0; padding: 0; }
+  .x-treelist-row { padding: 10px 14px; cursor: pointer; }
+  .x-treelist-item-wrap { display: flex; gap: 8px; }
+  #desktop { flex: 1; padding: 10px; position: relative; }
+  .dashboard-card { display: inline-block; vertical-align: top; width: 280px; border: 1px solid #ddd; margin: 8px; padding: 8px; }
+  .x-hidden-display { display: none !important; }
+  .x-mask { position: fixed; inset: 0; background: rgba(255,255,255,.6); }
+  .icon { display: inline-block; width: 18px; height: 18px; border-radius: 50%; background: #ccc; }
+  .icon-ora-da-firmare { background: #f8b133; } .icon-ora-firmata { background: #7abb63; } .icon-ora-plus { background: #9ab; }
+  table.x-grid-item { width: 100%; border-collapse: collapse; } td.x-grid-cell { border: 1px solid #eee; padding: 4px 8px; }
+  .base-registri-menu-button { display: inline-block; padding: 8px 12px; border: 1px solid #ccc; margin: 2px; cursor: pointer; }
+  .x-btn-disabled { opacity: .4; }
+  .x-message-box { position: fixed; top: 100px; left: 300px; background: #fff; border: 2px solid #c00; padding: 20px; }
+</style></head>
+<body>
+<div id="menu" class="x-treelist x-treelist-nav"></div>
+<div id="desktop"></div>
+<script>
+(() => {
+  const DEFAULT = {
+    classi: [
+      { classe: '3A', lezioni: [{ numOra: 1, materia: 'INFORMATICA' }, { numOra: 2, materia: 'INFORMATICA' }] },
+      { classe: '4B', lezioni: [{ numOra: 3, materia: 'TPSIT' }] },
+      { classe: '5C', lezioni: [{ numOra: 5, materia: 'SISTEMI E RETI' }] }
+    ],
+    times: { 1: '08:00 - 09:00', 2: '09:00 - 10:00', 3: '10:00 - 11:00', 4: '11:00 - 12:00', 5: '12:00 - 13:00' },
+    signed: [], timesInDashboard: true, timesInRegistro: true, classeDocente: false,
+    homeMenu: true, homeClickBroken: false, iconCls: null, start: 'home', delay: 250
+  };
+  const cfg = Object.assign({}, DEFAULT, JSON.parse(decodeURIComponent(location.hash.slice(1) || '%7B%7D')));
+  const signed = new Set(cfg.signed);
+  const log = window.__didup = { homeClicks: 0, apiHome: 0, signClicks: [], unsignAttempts: 0, opened: [], appelloOpened: 0, cfg };
+  let seq = 1000;
+  const nextId = x => `${x}-${++seq}`;
+  const $d = document.getElementById('desktop');
+  const views = { dashboard: null, registro: null, appello: null };
+  let stato = null;                        // registro aperto: { classe, numOra }
+
+  // ---- maschera di caricamento (come Ext) ----
+  function withMask(fn) {
+    const m = document.createElement('div'); m.className = 'x-mask'; document.body.appendChild(m);
+    setTimeout(() => { m.remove(); fn(); }, cfg.delay);
+  }
+
+  // ---- menu (Ext.list.Tree) ----
+  const menu = document.getElementById('menu');
+  const item = (key, icon, text) => `<li class="x-treelist-item x-treelist-item-leaf x-treelist-item-with-icon" data-menu="${key}" data-recordid="${key === 'home' ? 'dashboard-main-view' : key}">
+      <div class="x-treelist-row"><div class="x-treelist-item-wrap"><div class="x-treelist-item-icon ${icon}"></div>
+      <div class="x-treelist-item-text">${text}</div><div class="x-treelist-item-expander"></div></div></div>
+      <ul class="x-treelist-container"></ul></li>`;
+  menu.innerHTML = `<ul class="x-treelist-root-container">
+    ${cfg.homeMenu ? item('home', 'menuicon menuicon-menu-home', 'Home') : ''}
+    <li class="x-treelist-item x-treelist-item-expandable" data-menu="oggi"><div class="x-treelist-row"><div class="x-treelist-item-wrap">
+      <div class="x-treelist-item-icon menuicon menuicon-menu-registro"></div><div class="x-treelist-item-text">Registro</div></div></div>
+      <ul class="x-treelist-container">${item('planning', 'x-fa fa-calendar', 'Planning Settimanale')}</ul></li>
+    ${item('bacheca', 'menuicon', 'Bacheca')}</ul>`;
+  menu.addEventListener('click', e => {               // Ext: listener "click" sull'elemento della treelist
+    const li = e.target.closest('.x-treelist-item');
+    if (li && li.dataset.menu === 'home') { log.homeClicks++; if (!cfg.homeClickBroken) cleanDesktopAndShowHome(); }
+  });
+
+  function destroyAll() {
+    for (const k of Object.keys(views)) { if (views[k]) views[k].remove(); views[k] = null; }
+    $d.textContent = '';
+    stato = null;
+  }
+
+  // ---- Home ----
+  const iconFor = (classe, n) => cfg.iconCls || (signed.has(`${classe}#${n}`) ? 'icon-ora-firmata' : 'icon-ora-da-firmare');
+  function renderIconaFirma(cls, n, customId) {
+    return `<div class="div-flex-vcentered content-centered flex-wrap"><span role="button" aria-label="1" class="iconora-stack argo-orange-color cursor-pointer fontSize-5">
+      <span ${customId ? `id = "${customId}"` : ''} class="icon ${cls} iconora-stack-main" aria-label="${n}° ora" data-qtip="" data-iconora="${n}"></span></span></div>`;
+  }
+  function cleanDesktopAndShowHome() {
+    destroyAll();
+    withMask(() => {
+      const v = document.createElement('div');
+      v.id = nextId('dashboard-main-view');
+      v.innerHTML = `<div id="${nextId('dashboardview-docente')}"><div class="main-header-section-clean">Le mie classi</div></div>`;
+      for (const c of cfg.classi) {
+        const card = document.createElement('div');
+        card.className = 'x-panel dashboard-card x-panel-default';
+        card.id = nextId('panel');
+        card.innerHTML = `<div class="x-panel-body"><a class="x-btn" role="button"><span class="x-btn-inner"><span class="argo-blue-color fontWeight-bold fontSize-20">Classe ${c.classe}</span></span></a>
+          <a class="x-btn" role="button"><span class="x-btn-inner"><span class="whiteSpace fontWeight-normal">INFORMATICA E TELECOMUNICAZIONI</span></span></a>
+          <div class="x-panel"><div class="x-panel-body">` + c.lezioni.map((l, idx) => {
+            const id = `ora_${l.numOra}_${idx}`;
+            return `<div class="dashboard-lezione-materia dashboard-lezione-col">${renderIconaFirma(iconFor(c.classe, l.numOra), l.numOra, id)}<span id='${id}' style='cursor:pointer;' role='button' aria-label='${l.numOra}' title='vai al registro di classe ora ${l.numOra} - ${l.materia}'></span><span id='${id}' style='color:#f8b133;cursor:pointer' title='vai al registro di classe ora ${l.numOra} - ${l.materia}'>${l.materia}</span></div>`;
+          }).join('') + `</div></div></div>`;
+        card.addEventListener('click', e => {         // Ext: delegate span[id^=ora_]
+          const t = e.target.closest('span[id^="ora_"]');
+          if (!t) return;
+          const numOra = Number(t.id.split('_')[1]);
+          openRegistro(c.classe, numOra);
+        });
+        v.appendChild(card);
+      }
+      $d.appendChild(v);
+      views.dashboard = v;
+    });
+  }
+
+  // ---- Registro di classe ----
+  const myLesson = (classe, n) => (cfg.classi.find(c => c.classe === classe) || { lezioni: [] }).lezioni.find(l => l.numOra === n);
+  function appelloEnabled() {
+    if (!stato) return false;
+    const mine = myLesson(stato.classe, stato.numOra);
+    return cfg.classeDocente || Boolean(mine && signed.has(`${stato.classe}#${stato.numOra}`));
+  }
+  function renderGrid(grid) {
+    grid.querySelector('.x-grid-view').innerHTML = [1, 2, 3, 4, 5].map(n => {
+      const mine = myLesson(stato.classe, n);
+      const cls = mine ? iconFor(stato.classe, n) : 'icon-ora-plus';
+      const time = cfg.timesInRegistro && cfg.times[n] ? `<span class = "flex-basis-100 mt-2"><div>${cfg.times[n]}</div></span>` : '';
+      return `<table class="x-grid-item" data-recordindex="${n - 1}"><tbody><tr class="x-grid-row">
+        <td class="x-grid-cell"><div class="x-grid-cell-inner">${renderIconaFirma(cls, n).replace('</div>', time + '</div>')}</div></td>
+        <td class="x-grid-cell"><div class="x-grid-cell-inner">${mine ? 'MADDALUNO DANIELE' : 'BIANCHI ANNA'}</div></td>
+        <td class="x-grid-cell"><div class="x-grid-cell-inner">${mine ? mine.materia : 'ITALIANO'}</div></td></tr></tbody></table>`;
+    }).join('');
+    const btn = views.registro.querySelector('.menu-registro-appello');
+    const on = appelloEnabled();
+    btn.classList.toggle('x-btn-disabled', !on); btn.classList.toggle('x-item-disabled', !on);
+    btn.setAttribute('aria-disabled', String(!on));
+  }
+  function openRegistro(classe, numOra) {
+    log.opened.push(`${classe}#${numOra}`);
+    withMask(() => {
+      if (views.dashboard) views.dashboard.classList.add('x-hidden-display');   // card layout: la Home resta nascosta
+      stato = { classe, numOra };
+      const v = document.createElement('div');
+      v.id = nextId('registro-main-view');
+      v.innerHTML = `<div id="${nextId('attivita-view')}"><div id="${nextId('menu-classic')}" class="sub-header">
+          <div>${renderIconaFirma(iconFor(classe, numOra), numOra)}<span class="fontSize-20 argo-redtext-color"><b>giovedì 5 novembre</b></span> ${classe}</div>
+          <a class="base-registri-menu-button menu-registro-giornale-classe" role="button"><span class="x-btn-inner">Giornale di classe</span></a>
+          <a class="base-registri-menu-button menu-registro-appello" role="button"><span class="x-btn-inner">Appello</span></a>
+          <a class="base-registri-menu-button menu-registro-note" role="button"><span class="x-btn-inner">Note</span></a></div>
+        <div class="x-grid" id="${nextId('gridpanel')}"><div class="x-grid-view"></div></div></div>`;
+      $d.appendChild(v);
+      views.registro = v;
+      const grid = v.querySelector('.x-grid');
+      renderGrid(grid);
+      grid.addEventListener('click', e => {             // Ext: cellclick → onAttivitaSelectedClassic
+        const td = e.target.closest('td'); const row = e.target.closest('.x-grid-item');
+        if (!td || !row) return;
+        const cellIndex = [...row.querySelectorAll('td')].indexOf(td) + 1;   // colonna ORA nascosta = 0
+        const n = Number(row.dataset.recordindex) + 1;
+        if (cellIndex !== 1 || !myLesson(stato.classe, n)) return;
+        if (signed.has(`${stato.classe}#${n}`)) {
+          log.unsignAttempts++;
+          const box = document.createElement('div');
+          box.className = 'x-window x-message-box'; box.id = nextId('messagebox');
+          box.innerHTML = '<div class="x-window-body"><div class="x-window-text">Conferma elimina firma. Vuoi procedere?</div></div>';
+          document.body.appendChild(box);
+          return;
+        }
+        log.signClicks.push(`${stato.classe}#${n}`);
+        withMask(() => { signed.add(`${stato.classe}#${n}`); renderGrid(grid); });   // apriGiornaleDiClasse
+      });
+      v.querySelector('.menu-registro-appello').addEventListener('click', e => {
+        if (!appelloEnabled()) return;                    // pulsante Ext disabilitato
+        withMask(() => {
+          v.classList.add('x-hidden-display');
+          const a = document.createElement('div');
+          a.id = nextId('appello-classe-view');
+          a.innerHTML = `<div class="sub-header">Appello ${stato.classe} · ${stato.numOra}ª ora</div><table class="x-grid-item"><tr class="x-grid-row"><td>ALUNNO UNO</td></tr></table>`;
+          $d.appendChild(a); views.appello = a; log.appelloOpened++;
+        });
+      });
+    });
+  }
+
+  // ---- oggetti Ext/WSX letti da page-bridge.js ----
+  const rec = data => ({ get: f => data[f], getData: () => data, data });
+  window.Ext = {
+    getCmp: () => null,
+    Ajax: { getDefaultHeaders: () => ({ Accept: 'application/json', Authorization: 'Bearer tok', 'x-auth-token': 'sid' }) },
+    ComponentQuery: { query(sel) {
+      if (sel === 'dashboard-main-view' && views.dashboard) {
+        return [{ isVisible: () => !views.dashboard.classList.contains('x-hidden-display'), getViewModel: () => ({ getStore: n => n !== 'classiDocente' ? null : {
+          getRange: () => cfg.classi.map(c => {
+            const [den, sez] = [c.classe.slice(0, 1), c.classe.slice(1)];
+            return rec({ desDenominazione: den, desSezione: sez, lezioni: c.lezioni.map(l => Object.assign(
+              { numOra: l.numOra, firmata: signed.has(`${c.classe}#${l.numOra}`), materia: { desDescrizione: l.materia, pk: 'm' + l.numOra } },
+              cfg.timesInDashboard ? { oraInizioFine: cfg.times[l.numOra] } : {})) });
+          }) } }) }];
+      }
+      if (sel === 'attivita-view' && views.registro) {
+        return [{ isVisible: () => !views.registro.classList.contains('x-hidden-display'), lookupViewModel: () => ({ getStore: n => n !== 'attivita' ? null : {
+          getRange: () => [1, 2, 3, 4, 5].map(n => rec({ numOra: n, oraInizioFine: cfg.timesInRegistroData ? cfg.times[n] : '',
+            anagrafePK: myLesson(stato.classe, n) ? 'me' : 'other', flgPresente: signed.has(`${stato.classe}#${n}`) ? 'S' : 'N' })) } }) }];
+      }
+      if (sel === 'appello-classe-view' && views.appello) return [{ isVisible: () => true }];
+      return [];
+    } }
+  };
+  window.getUrlBase = () => '/api/';
+  window.WSX = { util: { IDXMENUDASH: 'dashboard-main-view', getAnagrafePK: () => 'me' },
+    app: { getMainView: () => ({ getController: () => ({ clickMenuItem: id => { if (id === 'dashboard-main-view') { log.apiHome++; cleanDesktopAndShowHome(); } } }) }) } };
+
+  // ---- schermata iniziale ----
+  if (cfg.start === 'home') cleanDesktopAndShowHome();
+  else if (cfg.start.startsWith('registro:')) { const [, c, n] = cfg.start.split(':'); cleanDesktopAndShowHome(); setTimeout(() => openRegistro(c, Number(n)), cfg.delay + 50); }
+  else if (cfg.start === 'editing') {
+    cleanDesktopAndShowHome();
+    setTimeout(() => {
+      const w = document.createElement('div'); w.className = 'x-window'; w.id = nextId('attivita-dettaglio-tabview');
+      w.innerHTML = '<fieldset class="x-fieldset"><legend class="x-fieldset-header"><div class="x-fieldset-header-text"><span>Registro di classe</span><span>Docenti ed alunni</span></div></legend><textarea>testo non salvato</textarea></fieldset>';
+      $d.appendChild(w);
+    }, cfg.delay + 50);
+  }
+})();
+</script>
+</body></html>
