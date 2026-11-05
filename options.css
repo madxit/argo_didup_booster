@@ -36,7 +36,17 @@ body {
   border-bottom: 1px solid var(--border);
 }
 .topbar-icon { width: 40px; height: 40px; }
-.topbar-title h1 { margin: 0; font-size: 18px; }
+.topbar-title h1 { margin: 0; font-size: 18px; display: flex; align-items: center; gap: 8px; }
+.version-pill {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  background: #eef1f5;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-variant-numeric: tabular-nums;
+}
 .topbar-title p { margin: 0; color: var(--muted); font-size: 13px; }
 
 .save-indicator {
@@ -457,11 +467,3 @@ dialog::backdrop { background: rgba(17, 24, 39, .45); }
   cursor: pointer;
   padding: 0;
 }
-
-/* ---------- Informazioni ---------- */
-.kv { margin: 0; display: grid; gap: 0; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
-.kv div { display: grid; grid-template-columns: 180px 1fr; gap: 12px; padding: 9px 14px; }
-.kv div + div { border-top: 1px solid var(--border); }
-.kv div:nth-child(odd) { background: #fafbfc; }
-.kv dt { color: var(--muted); font-weight: 600; }
-.kv dd { margin: 0; overflow-wrap: anywhere; }

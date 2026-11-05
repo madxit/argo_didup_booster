@@ -884,37 +884,11 @@ function fillForm() {
   renderTopicsSection();
 }
 
-// =================== INFORMAZIONI ===================
-// Versione dal manifest; commit e data da build-info.json (tools/build-info.mjs).
+// =================== VERSIONE ===================
+// Mostrata in cima alla pagina, letta dal manifest.
 
-async function renderInfo() {
-  const m = chrome.runtime.getManifest();
-  $('info-name').textContent = m.name || '—';
-  $('info-version').textContent = m.version || '—';
-  let info = null;
-  try {
-    const res = await fetch(chrome.runtime.getURL('build-info.json'), { cache: 'no-store' });
-    if (res.ok) info = await res.json();
-  } catch (e) { /* file assente */ }
-  const commit = $('info-commit');
-  const date = $('info-commit-date');
-  const hint = $('info-hint');
-  commit.classList.toggle('mono', Boolean(info && info.commit));
-  if (info && info.commit) {
-    commit.textContent = info.commit.slice(0, 7);
-    commit.title = info.commit;
-    const d = new Date(info.commitDate);
-    date.textContent = isNaN(d) ? (info.commitDate || '—')
-      : d.toLocaleString('it-IT', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-    hint.hidden = true;
-  } else {
-    commit.textContent = 'non disponibile';
-    date.textContent = 'non disponibile';
-    hint.hidden = false;
-    hint.textContent = info && info.note
-      ? 'La cartella dell\'estensione non è sotto git: commit e data compaiono dopo il primo commit.'
-      : 'Manca il file build-info.json: lo crea "node tools/build-info.mjs" (in automatico dopo ogni commit).';
-  }
+function renderInfo() {
+  $('info-version').textContent = 'v' + (chrome.runtime.getManifest().version || '?');
 }
 
 (async function init() {

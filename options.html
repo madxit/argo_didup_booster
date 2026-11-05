@@ -11,7 +11,7 @@
   <header class="topbar">
     <img src="icon/icon128.png" alt="" class="topbar-icon">
     <div class="topbar-title">
-      <h1>Argo DidUP Booster</h1>
+      <h1>Argo DidUP Booster <span id="info-version" class="version-pill" title="Versione installata">—</span></h1>
       <p>Impostazioni</p>
     </div>
     <span id="save-indicator" class="save-indicator" aria-live="polite">✓ Salvato</span>
@@ -30,7 +30,7 @@
         <div class="field">
           <label for="codiceScuola">Codice scuola Argo <span class="req">*</span></label>
           <input id="codiceScuola" class="mono" autocomplete="off" spellcheck="false" maxlength="16" placeholder="es. SG12345">
-          <p class="hint">Il codice che inserisci nella pagina di accesso di Argo, prima di SPID.</p>
+          <p class="hint">Il codice che inserisci nella pagina di accesso di Argo, prima dell'accesso con SPID o CIE.</p>
           <p class="error" id="codiceScuola-error" hidden></p>
         </div>
         <div class="field">
@@ -197,17 +197,6 @@
       <button id="reset-urls" class="btn small" type="button">Ripristina indirizzi predefiniti</button>
     </details>
 
-    <!-- ============ INFORMAZIONI ============ -->
-    <section class="card" id="sec-info">
-      <h2>ℹ️ Informazioni</h2>
-      <dl class="kv">
-        <div><dt>Nome</dt><dd id="info-name">—</dd></div>
-        <div><dt>Versione</dt><dd id="info-version" class="mono">—</dd></div>
-        <div><dt>Commit</dt><dd id="info-commit" class="mono">—</dd></div>
-        <div><dt>Data del commit</dt><dd id="info-commit-date">—</dd></div>
-      </dl>
-      <p class="hint" id="info-hint" hidden></p>
-    </section>
   </main>
 
   <dialog id="choice-dialog">
