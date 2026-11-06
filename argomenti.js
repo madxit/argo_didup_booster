@@ -135,27 +135,44 @@
   }
 
   // A destra, centrato sulla riga del titolo (la legenda del riquadro).
+  // Il pulsante NON sta dentro il riquadro: in DidUP «.x-fieldset» ha
+  // overflow:hidden e la legenda è nella zona del bordo, quindi verrebbe
+  // tagliato via. Sta subito dopo il riquadro, nello stesso contenitore, in
+  // posizione assoluta: si misura dove finisce a 0,0 e si corregge.
   function positionButton(host) {
     const { title, fieldset } = host.__argo || {};
-    if (!title || !fieldset || !title.isConnected) return;
-    if (getComputedStyle(fieldset).position === 'static') fieldset.style.position = 'relative';
+    if (!fieldset || !fieldset.isConnected) {          // riquadro tolto da Ext: il pulsante non serve più
+      if (picker && picker.anchor === host) closePicker();
+      host.remove();
+      return;
+    }
+    if (!title || !title.isConnected) return;
     const legend = title.closest('legend, .x-fieldset-header') || title;
-    // Si misura dove finisce con top:0 e si corregge: l'origine di un elemento
-    // assoluto dentro un <fieldset> dipende da come il browser dispone la legenda.
+    const fr = fieldset.getBoundingClientRect();
+    const lr = legend.getBoundingClientRect();
+    if (fr.width === 0 && fr.height === 0) { host.style.visibility = 'hidden'; return; }   // scheda nascosta
+    host.style.visibility = '';
+    host.style.left = '0px';
     host.style.top = '0px';
     const zero = host.getBoundingClientRect();
-    const lr = legend.getBoundingClientRect();
-    host.style.top = `${Math.round(lr.top + lr.height / 2 - zero.height / 2 - zero.top)}px`;
+    const left = fr.right - 14 - zero.width - zero.left;
+    const top = lr.top + lr.height / 2 - zero.height / 2 - zero.top;
+    host.style.left = `${Math.round(left)}px`;
+    host.style.top = `${Math.round(Math.max(0, top))}px`;
     host.style.background = backgroundOf(fieldset);
   }
 
   function injectButton(title) {
     const fieldset = fieldsetOf(title) || title.parentElement;
-    const existing = fieldset.querySelector(`:scope > [${HOST_ATTR}="button"]`);
-    if (existing) { positionButton(existing); return existing; }
+    const next = fieldset.nextElementSibling;
+    if (next && next.getAttribute(HOST_ATTR) === 'button') {
+      next.__argo = { title, fieldset };      // Ext può aver ridisegnato il titolo
+      positionButton(next);
+      return next;
+    }
     const host = document.createElement('span');
     host.setAttribute(HOST_ATTR, 'button');
-    host.style.cssText = 'position:absolute;right:14px;top:0;z-index:1;display:inline-block;padding:0 6px;line-height:0;';
+    host.style.cssText = 'position:absolute;left:0;top:0;z-index:2;display:block;padding:0 6px;line-height:0;margin:0;';
     host.__argo = { title, fieldset };
     const root = host.attachShadow({ mode: 'open' });
     // Stesso stile dei pulsanti «Firma ora» / «Appello» (impostazioni → Pulsanti nel registro).
@@ -175,7 +192,8 @@
       if (picker && picker.anchor === host) closePicker();
       else openPicker(host, btn, fieldsetOf(title));
     });
-    fieldset.appendChild(host);
+    // (nessuno stile cambiato sui contenitori di Ext: la posizione si corregge misurando)
+    fieldset.after(host);
     positionButton(host);
     return host;
   }
@@ -549,7 +567,10 @@
     settings = s;
     if (!isArgoPortalUrl(location.href) && !isArgoDashboardUrl(location.href, s)) return;
     observer.observe(document.documentElement, { childList: true, subtree: true });
-    window.addEventListener('resize', () => document.querySelectorAll(`span[${HOST_ATTR}="button"]`).forEach(positionButton));
+    // Ext ridispone le finestre senza aggiungere nodi (es. ridimensionamento): si riallinea spesso, costa poco.
+    const realign = () => document.querySelectorAll(`span[${HOST_ATTR}="button"]`).forEach(positionButton);
+    window.addEventListener('resize', realign);
+    const realignTimer = setInterval(() => { if (!isCurrent()) clearInterval(realignTimer); else realign(); }, 700);
     scan();
   }).catch(err => console.warn('[Argo DidUP Booster] Argomenti:', err));
 })();

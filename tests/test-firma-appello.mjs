@@ -316,9 +316,16 @@ try {
   };
   let pt = await tb(`const r = pr.querySelector('.p').getBoundingClientRect(); return { x: Math.round(r.left + 40), y: Math.round(r.top + 60) };`);
   await mouseClick(pt.x, pt.y);
-  check(await tb(`return !run.hidden`), 'clic dentro il pannello: resta aperto');
+  const panelShown = `pr.querySelector('.p').getBoundingClientRect().width > 0`;
+  check(await tb(`return ${panelShown}`), 'clic dentro il pannello: resta aperto');
   await mouseClick(300, 600);
-  check(await tb(`return run.hidden`), 'clic fuori dal pannello: si chiude');
+  check(await tb(`return !(${panelShown})`), 'clic fuori dal pannello: si chiude (non si vede più)');
+  // la × chiude davvero il pannello (regressione 1.2.0: l'attributo hidden non bastava)
+  await tb(`root.querySelector('[data-action="firma"]').click();`);
+  await tb(`for (let i = 0; i < 80; i++) { await new Promise(r => setTimeout(r, 100)); if (!pr.querySelector('.result').hidden) break; }`);
+  pt = await tb(`const r = pr.querySelector('.x').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };`);
+  await mouseClick(pt.x, pt.y);
+  check(await tb(`return !(${panelShown})`), 'clic sulla ×: il pannello si chiude (non si vede più)');
   // il clic su un pulsante della barra non conta come «fuori»
   await tb(`root.querySelector('[data-action="firma"]').click();`);
   await sleep(300);
@@ -326,8 +333,8 @@ try {
   pt = await tb(`const r = root.querySelector('[data-action="appello"]').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };`);
   await mouseClick(pt.x, pt.y);
   t = await tb(`for (let i = 0; i < 80; i++) { await new Promise(r => setTimeout(r, 100)); if (!pr.querySelector('.result').hidden) break; }
-    return { hidden: run.hidden, title: pr.querySelector('.title').textContent };`);
-  check(!t.hidden && t.title === 'Appello', 'con il pannello aperto, il clic su un altro pulsante della barra non lo chiude: parte quell\'azione', JSON.stringify(t));
+    return { shown: ${panelShown}, title: pr.querySelector('.title').textContent };`);
+  check(t.shown && t.title === 'Appello', 'con il pannello aperto, il clic su un altro pulsante della barra non lo chiude: parte quell\'azione', JSON.stringify(t));
 
   await navigate(oneLesson(slotOther), 1200);
   await tb(`root.querySelector('[data-action="firma"]').click();`);
@@ -358,8 +365,8 @@ try {
   await tb(`root.querySelector('[data-action="firma"]').click();`);
   await tb(`for (let i = 0; i < 80; i++) { await new Promise(r => setTimeout(r, 100)); const p2 = document.querySelector('[data-argo-assistant="run"]')?.shadowRoot; if (p2 && !p2.querySelector('.askbox').hidden) break; }`);
   await mouseClick(300, 600);
-  t = await tb(`await new Promise(r => setTimeout(r, 800)); return { signed: window.__didup.signClicks.length, hidden: run.hidden, result: pr.querySelector('.result').textContent };`);
-  check(t.signed === 0 && /Non ho firmato nulla/.test(t.result), 'clic fuori durante la domanda: pannello chiuso, vale «no»', JSON.stringify(t));
+  t = await tb(`await new Promise(r => setTimeout(r, 800)); return { signed: window.__didup.signClicks.length, shown: ${panelShown}, result: pr.querySelector('.result').textContent };`);
+  check(t.signed === 0 && !t.shown && /Non ho firmato nulla/.test(t.result), 'clic fuori durante la domanda: pannello chiuso, vale «no»', JSON.stringify(t));
 
   await navigate(`${BASE}/voti/app?n=${++navCount}`, 1200);
   await tb(`root.querySelector('[data-action="appello"]').click();`);

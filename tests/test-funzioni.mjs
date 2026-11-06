@@ -26,6 +26,7 @@ const html = (res, body) => { res.writeHead(200, { 'content-type': 'text/html; c
 const readBody = req => new Promise(r => { let d = ''; req.on('data', c => d += c); req.on('end', () => r(d)); });
 
 const REGISTRO = `
+  <style>/* come in DidUP (voti-all.css): il riquadro taglia quello che sta sulla legenda */ .x-fieldset{display:block;position:relative;overflow:hidden} .x-fieldset-header{overflow:hidden} .x-fieldset-header-text{float:left}</style>
   <h1>Registro finto</h1>
   <div class="x-window" style="position:absolute;left:40px;top:60px;width:900px;background:#fff;border:1px solid #ccc;padding:16px">
     <fieldset class="x-fieldset lightBorder" style="padding:10px 20px">
@@ -343,12 +344,14 @@ await setStore({ ...base, keepAliveEnabled: false, discipline: [
 await navigate(`${BASE}/voti/?classic`, 1200);
 check(await evaluate(`return !!document.documentElement && !!document.querySelector('.x-window')`), 'il registro resta intatto dopo l\'avvio degli script');
 check(await evaluate(`return document.querySelectorAll('[data-argo-assistant-topics="button"]').length`) === 1 &&
-  await evaluate(`return document.querySelector('[data-argo-assistant-topics="button"]').parentElement === document.getElementById('title1').closest('fieldset')`),
+  await evaluate(`return document.querySelector('[data-argo-assistant-topics="button"]').previousElementSibling === document.getElementById('title1').closest('fieldset')`),
   'pulsante solo nella sezione "Registro di classe · Docenti ed alunni"');
 let al = await evaluate(`const h = document.querySelector('[data-argo-assistant-topics="button"]'); const b = h.shadowRoot.querySelector('button').getBoundingClientRect();
   const f = h.parentElement.getBoundingClientRect(); const lg = document.querySelector('#title1').closest('legend').getBoundingClientRect();
-  return { gapRight: f.right - b.right, mid: b.top + b.height / 2, legendMid: lg.top + lg.height / 2, titleRight: document.getElementById('title1').getBoundingClientRect().right, left: b.left };`);
-check(al.gapRight > 10 && al.gapRight < 30 && Math.abs(al.mid - al.legendMid) < 2 && al.left > al.titleRight + 100,
+  const f2 = h.previousElementSibling.getBoundingClientRect(); const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+  return { gapRight: f2.right - b.right, mid: b.top + b.height / 2, legendMid: lg.top + lg.height / 2, titleRight: document.getElementById('title1').getBoundingClientRect().right, left: b.left,
+    visible: hit === h, fieldsetOverflow: getComputedStyle(h.previousElementSibling).overflow };`);
+check(al.visible && al.fieldsetOverflow === 'hidden' && al.gapRight > 10 && al.gapRight < 30 && Math.abs(al.mid - al.legendMid) < 2 && al.left > al.titleRight + 100,
   'allineato a destra, sulla stessa riga del titolo del riquadro');
 await shot('13-registro-pulsante', `const r = document.querySelector('.x-window').getBoundingClientRect()`);
 
@@ -406,6 +409,12 @@ check(await evaluate(`return !document.querySelector('[data-argo-assistant-topic
 await evaluate(`document.querySelector('[data-argo-assistant-topics="button"]').remove(); document.getElementById('title1').innerHTML = '<span>Registro di classe</span><span>Docenti ed alunni</span>';`);
 await sleep(700);
 check(await evaluate(`return document.querySelectorAll('[data-argo-assistant-topics="button"]').length`) === 1, 'se Ext JS ridisegna il riquadro, il pulsante viene reinserito');
+// Ext ridimensiona la finestra senza aggiungere nodi: il pulsante la segue
+al = await evaluate(`document.querySelector('.x-window').style.width = '700px'; await new Promise(r => setTimeout(r, 900));
+  const h = document.querySelector('[data-argo-assistant-topics="button"]'); const b = h.shadowRoot.querySelector('button').getBoundingClientRect();
+  return { gapRight: h.previousElementSibling.getBoundingClientRect().right - b.right, visible: document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2) === h };`);
+check(al.visible && al.gapRight > 10 && al.gapRight < 30, 'finestra ridimensionata da Ext: il pulsante resta a destra sulla riga del titolo');
+await evaluate(`document.querySelector('.x-window').style.width = '900px';`);
 
 // Funzione tolta dalle impostazioni e rimessa
 await evaluate(`await chrome.storage.local.set({ showArgomenti: false }); await new Promise(r => setTimeout(r, 300));`);
