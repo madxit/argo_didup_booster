@@ -122,17 +122,41 @@ await sleep(500);
 s = await store();
 check(s.codiceScuola === 'SG12345' && await evaluate(`return document.getElementById('missing-code-banner').hidden`), 'codice valido salvato, banner nascosto');
 
-// Sessione
-await evaluate(`const el = document.getElementById('keepAliveInterval'); el.value = '5'; el.dispatchEvent(new Event('input')); el.dispatchEvent(new Event('change'));`);
+// Sessione: un solo metodo, si può solo attivare o disattivare
+check(await evaluate(`return !document.getElementById('keepAliveInterval') && !document.querySelector('input[name=keepAliveMethod]')`), 'sessione: nessuna scelta di intervallo o metodo');
+await evaluate(`document.getElementById('keepAliveEnabled').click();`);
 await sleep(200);
-check((await store()).keepAliveInterval === 30 && await evaluate(`return document.getElementById('keepAliveInterval').value === '30'`), 'intervallo limitato al minimo (30 s)');
-await evaluate(`const el = document.getElementById('keepAliveInterval'); el.value = '300'; el.dispatchEvent(new Event('change'));`);
-await evaluate(`document.querySelector('input[name=keepAliveMethod][value=reload]').click();`);
+check((await store()).keepAliveEnabled === false && /disattivato/.test(await evaluate(`return document.getElementById('keepalive-status').textContent`)), 'mantenimento disattivato: salvato e indicato');
+await evaluate(`document.getElementById('keepAliveEnabled').click();`);
+await sleep(200);
+await evaluate(`await chrome.storage.local.set({ keepAliveStatus: { time: Date.now(), ok: true, action: 'renew', lastRenewAt: Date.now(), tokenExpiresAt: Date.now() + 3540e3 } });`);
+await sleep(100);
+let ks = await evaluate(`return document.getElementById('keepalive-status').textContent`);
+check(/Token di accesso rinnovato/.test(ks) && /vale ancora circa 59 min/.test(ks), 'stato: rinnovo del token e durata residua', ks);
+await evaluate(`await chrome.storage.local.set({ keepAliveStatus: { time: Date.now(), ok: false, expired: true, renewError: 'Argo non permette di rinnovare l\\'accesso senza di te: serve un nuovo accesso con SPID o CIE' } });`);
+await sleep(100);
+ks = await evaluate(`return document.getElementById('keepalive-status').textContent`);
+check(/Sessione scaduta/.test(ks) && /serve un nuovo accesso/.test(ks), 'stato: sessione scaduta con il motivo', ks);
+
+// Pulsanti nel registro
+const pv = js => evaluate(`const b = document.getElementById('pv-buttons'); const root = b.shadowRoot; ${js}`);
+let pvs = await pv(`return { n: root.querySelectorAll('button.b').length, themes: document.querySelectorAll('input[name=buttonsTheme]').length,
+  checked: document.querySelector('input[name=buttonsTheme]:checked').value, pos: document.querySelector('input[name=buttonsPosition]:checked').value,
+  right: b.style.right, bg: getComputedStyle(root.querySelector('.b')).backgroundColor, pill: !!document.getElementById('pv-topics').shadowRoot.querySelector('.pill') };`);
+check(pvs.n === 2 && pvs.themes === 6 && pvs.checked === 'vivid' && pvs.pos === 'right' && pvs.right && pvs.pill && pvs.bg === 'rgb(124, 58, 237)',
+  'pulsanti: 6 stili, predefiniti «Evidenziato» a destra, anteprima con Firma, Appello e «Argomenti e compiti»', JSON.stringify(pvs));
+await shot('03b-pulsanti-evidenziato', '#sec-pulsanti');
+await evaluate(`document.querySelector('input[name=buttonsTheme][value=contrast]').click(); document.querySelector('input[name=buttonsPosition][value=center]').click();`);
 await sleep(200);
 s = await store();
-check(s.keepAliveInterval === 300 && s.keepAliveMethod === 'reload', 'intervallo e metodo salvati');
-check(await evaluate(`return document.getElementById('interval-human').textContent`) === '= 5 min', 'etichetta durata "= 5 min"');
-await evaluate(`document.querySelector('input[name=keepAliveMethod][value=ping]').click();`);
+pvs = await pv(`return { left: b.style.left, bg: getComputedStyle(root.querySelector('.b')).backgroundColor, fg: getComputedStyle(root.querySelector('.b')).color };`);
+check(s.buttonsTheme === 'contrast' && s.buttonsPosition === 'center' && pvs.left === '50%' && pvs.bg === 'rgb(0, 0, 0)' && pvs.fg === 'rgb(255, 235, 59)',
+  'scelta salvata e anteprima aggiornata (alto contrasto, al centro)', JSON.stringify(pvs));
+await shot('03c-pulsanti-contrasto', '#sec-pulsanti');
+await evaluate(`document.querySelector('input[name=buttonsTheme][value=vivid]').click(); document.querySelector('input[name=buttonsPosition][value=right]').click();`);
+await sleep(200);
+check(sanitizeOk(await evaluate(`return sanitizeSettings({ buttonsTheme: 'rosa', buttonsPosition: 'sotto' })`)), 'import: stile o posizione sconosciuti → valori predefiniti con avviso');
+function sanitizeOk(r) { return r.settings.buttonsTheme === 'vivid' && r.settings.buttonsPosition === 'right' && r.warnings.length === 2; }
 
 // Discipline
 const addDisc = nome => evaluate(`document.getElementById('new-disciplina').value = ${JSON.stringify(nome)}; document.getElementById('add-disciplina-form').requestSubmit();`);
@@ -280,7 +304,7 @@ check(exp.type === 'settings-export' && exp.settings.codiceScuola === 'SG12345' 
 const importFile = path.join(workDir('files'), 'import-test.json');
 fs.writeFileSync(importFile, JSON.stringify({
   ...exp,
-  settings: { ...exp.settings, codiceScuola: 'ab99999', keepAliveInterval: 99999, keepAliveMethod: 'boh',
+  settings: { ...exp.settings, codiceScuola: 'ab99999', buttonsTheme: 'sepia', keepAliveInterval: 99999, keepAliveMethod: 'boh',
     discipline: [{ nome: 'Storia', argomenti: ['Roma antica', 'roma antica', '  Medioevo '], compiti: ['Ripassare  Roma', 'ripassare roma'] }, { nome: '', argomenti: ['x'] }] }
 }));
 async function setImportFile(file) {
@@ -295,7 +319,7 @@ await shot('05-dialog-import');
 await evaluate(`document.querySelector('#choice-buttons button[value=replace]').click();`);
 await sleep(400);
 s = await store();
-check(s.codiceScuola === 'AB99999' && s.keepAliveInterval === 3600 && s.keepAliveMethod === 'ping' &&
+check(s.codiceScuola === 'AB99999' && s.buttonsTheme === 'sepia' && !('keepAliveInterval' in s) && !('keepAliveMethod' in s) &&
   JSON.stringify(s.discipline) === JSON.stringify([{ nome: 'Storia', argomenti: ['Roma antica', 'Medioevo'], compiti: ['Ripassare Roma'] }]), 'import "sostituisci" con valori ripuliti/validati (anche i compiti)', JSON.stringify(s.discipline));
 check(await evaluate(`return document.getElementById('codiceScuola').value === 'AB99999' && document.querySelector('#discipline-list li .item-text').textContent === 'Storia'`), 'form aggiornato dopo l\'import');
 

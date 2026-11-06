@@ -229,7 +229,39 @@ select:disabled { opacity: .5; }
   font-weight: 600;
   vertical-align: 1px;
 }
-#keepalive-options.disabled { opacity: .5; pointer-events: none; }
+ul.hint.list { padding-left: 20px; }
+ul.hint.list li { margin: 3px 0; }
+
+/* ---------- Pulsanti nel registro ---------- */
+.buttons-layout { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(340px, 1.25fr); gap: 22px; align-items: start; }
+@media (max-width: 760px) { .buttons-layout { grid-template-columns: 1fr; } }
+.theme-list { display: flex; flex-direction: column; gap: 6px; }
+.field label.theme-option, .theme-option { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: 10px; cursor: pointer; font-weight: 400 !important; margin: 0 !important; }
+.theme-option:has(input:checked) { border-color: var(--primary); background: var(--primary-soft); }
+.theme-option input { margin: 0; }
+.theme-option .sw { flex: none; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center;
+  border: 1.5px solid var(--b-border); background: var(--b-bg); color: var(--b-fg); box-shadow: var(--b-shadow); }
+.theme-option .tx { display: flex; flex-direction: column; line-height: 1.3; }
+.theme-option .tx small { color: var(--muted); font-size: 12px; }
+.preview-wrap { position: sticky; top: 84px; }
+.preview-label { font-weight: 600; margin-bottom: 6px; }
+.preview { border: 1px solid var(--border); border-radius: 10px; overflow: visible; background: #f2f4f7; font-family: Lato, 'Helvetica Neue', Arial, sans-serif; }
+.pv-header { position: relative; height: 54px; display: flex; align-items: center; gap: 12px; padding: 0 12px;
+  background: #fff; border-bottom: 1px solid #e3e7ec; border-radius: 10px 10px 0 0; }
+.pv-logo { font-size: 18px; color: #11799c; letter-spacing: -.02em; }
+.pv-logo b { color: #f8b133; }
+.pv-school { font-size: 13px; color: #234e66; font-weight: 600; }
+.pv-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
+.pv-help { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: #11799c; color: #fff; font-weight: 700; }
+.pv-profile { font-size: 12px; color: #234e66; border: 1px solid #c9d7df; border-radius: 6px; padding: 4px 8px; }
+.pv-buttons { position: absolute; top: 50%; transform: translateY(-50%); display: flex; gap: 6px; }
+.pv-body { display: flex; min-height: 150px; }
+.pv-menu { width: 82px; background: #234e66; color: #dce8ee; font-size: 11px; display: flex; flex-direction: column; gap: 10px; padding: 12px 10px; border-radius: 0 0 0 10px; }
+.pv-content { flex: 1; padding: 12px; }
+.pv-fieldset { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid #d6dde6; border-radius: 6px 6px 0 0; background: #fff; font-size: 12px; }
+.pv-legend b { color: #11799c; } .pv-legend i { color: #888; }
+.pv-textarea { height: 56px; background: #fff; border: 1px solid #d6dde6; border-top: 0; border-radius: 0 0 6px 6px; }
 
 .status-line { margin: 10px 0 0; font-size: 13px; }
 .status-line:empty { display: none; }

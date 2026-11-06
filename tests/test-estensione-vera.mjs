@@ -1,5 +1,5 @@
-// Estensione VERA (script dichiarati nel manifest, mondo isolato, porta
-// popup↔pagina reale) contro il DidUP finto servito come https://www.portaleargo.it:
+// Estensione VERA (script dichiarati nel manifest, mondo isolato, pulsanti
+// nella pagina, service worker reale) contro il DidUP finto servito come https://www.portaleargo.it:
 // il nome viene dirottato su un server HTTPS locale con un certificato usa e getta.
 // Non serve Internet. Richiede openssl.
 import { launch, sleep, waitFor } from './lib/cdp-pipe.mjs';
@@ -26,14 +26,17 @@ const server = https.createServer({ key: readFileSync(join(CERT_DIR, 'key.pem'))
 });
 await new Promise(r => server.listen(8443, '127.0.0.1', r));
 
-// timetable around the real current time: the 3rd hour (4B) is in progress
+// Orario delle lezioni attorno all'ora attuale, in un fuso orario emulato dove sono
+// circa le 10:00 (così il test non dipende dall'ora in cui gira): la 3ª ora (4B) è in corso.
 const now = new Date();
-const nowMin = now.getHours() * 60 + now.getMinutes();
-const fmt = m => `${String(Math.floor(((m % 1440) + 1440) % 1440 / 60)).padStart(2, '0')}:${String(((m % 60) + 60) % 60).padStart(2, '0')}`;
+let tzOffset = (10 - now.getUTCHours() + 24) % 24;
+if (tzOffset > 14) tzOffset -= 24;
+const TIMEZONE = tzOffset === 0 ? 'Etc/GMT' : `Etc/GMT${tzOffset > 0 ? '-' : '+'}${Math.abs(tzOffset)}`;
+const nowMin = (now.getUTCHours() + tzOffset + 24) % 24 * 60 + now.getUTCMinutes();
+const fmt = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 const start3 = nowMin - 10;
 const times = {};
 for (let n = 1; n <= 5; n++) times[n] = `${fmt(start3 + (n - 3) * 60)} - ${fmt(start3 + (n - 2) * 60)}`;
-const crossesMidnight = start3 - 120 < 0 || start3 + 180 > 1439;
 
 const extDir = copyExtension();
 const b = await launch({ extraArgs: ['--host-resolver-rules=MAP www.portaleargo.it:443 127.0.0.1:8443', '--ignore-certificate-errors'] });
@@ -50,28 +53,25 @@ try {
   await swEval(`chrome.storage.local.set({ codiceScuola: 'SG18328', autoLogin: false, keepAliveEnabled: false })`);
   for (const t of (await b.send('Target.getTargets')).targetInfos) if (t.url.includes('/options.html')) await b.send('Target.closeTarget', { targetId: t.targetId });
 
-  async function scenario(label, cfg, action) {
+  async function scenario(label, cfg, action, keepOpen = false) {
     const url = `https://www.portaleargo.it/voti/?classic#${encodeURIComponent(JSON.stringify({ times, ...cfg }))}`;
     const { targetId } = await b.send('Target.createTarget', { url });
     const { sessionId } = await b.send('Target.attachToTarget', { targetId, flatten: true });
     await b.send('Runtime.enable', {}, sessionId);
+    await b.send('Emulation.setTimezoneOverride', { timezoneId: TIMEZONE }, sessionId);
     const pEval = async expr => (await b.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true }, sessionId)).result.value;
-    await waitFor(async () => (await pEval('document.readyState')) === 'complete' && (await pEval('document.documentElement.dataset.argoAssistantAzioni || ""')), { label: 'content scripts', timeout: 15000 });
+    await waitFor(async () => (await pEval('document.readyState')) === 'complete' && (await pEval(`(() => { const h = document.querySelector('[data-argo-assistant="toolbar"]'); return !!(h && h.style.display !== 'none'); })()`)), { label: 'pulsanti nella pagina', timeout: 15000 });
     await sleep(1200);
-    // what the popup does: connect to the page and run the action
-    const out = await swEval(`(async () => {
-      const tabs = await chrome.tabs.query({ url: 'https://www.portaleargo.it/*' });
-      const tab = tabs.find(t => t.url.includes(${JSON.stringify(encodeURIComponent(JSON.stringify(cfg)).slice(0, 20))})) || tabs[tabs.length - 1];
-      return await new Promise(resolve => {
-        const port = chrome.tabs.connect(tab.id, { name: 'argo-azione' });
-        const steps = [];
-        port.onMessage.addListener(m => {
-          if (m.type === 'ready') port.postMessage({ type: 'run', action: ${JSON.stringify(action)} });
-          if (m.type === 'step') steps.push(m.step.text);
-          if (m.type === 'done') resolve({ steps, result: m.result });
-        });
-        port.onDisconnect.addListener(() => resolve({ steps, disconnected: (chrome.runtime.lastError || {}).message || 'closed' }));
-      });
+    // come l'utente: clic sul pulsante nella barra di DidUP, poi si legge il pannello dei passi
+    await pEval(`document.querySelector('[data-argo-assistant="toolbar"]').shadowRoot.querySelector('[data-action="${action}"]').click()`);
+    // (vicino alla mezzanotte gli orari finti escono dalla fascia: alla domanda si risponde «sì»)
+    await waitFor(async () => pEval(`(() => { const r = document.querySelector('[data-argo-assistant="run"]'); if (!r) return false;
+      const ask = r.shadowRoot.querySelector('.askbox'); if (ask && !ask.hidden) r.shadowRoot.querySelector('.yes').click();
+      const x = r.shadowRoot.querySelector('.result'); return !!(x && !x.hidden); })()`), { label: 'esito', timeout: 40000 });
+    const out = await pEval(`(() => { const p = document.querySelector('[data-argo-assistant="run"]').shadowRoot;
+      const ok = p.querySelector('.p').classList.contains('done') || p.querySelector('.p').classList.contains('cancelled');
+      const steps = [...p.querySelectorAll('li')].map(l => l.textContent);
+      return { steps, result: { ok, summary: p.querySelector('.result').textContent, error: ok ? '' : steps[steps.length - 1] } };
     })()`);
     const log = await pEval('JSON.parse(JSON.stringify(window.__didup))');
     console.log(`\n[${label}]`);
@@ -79,11 +79,11 @@ try {
     console.log('    =', out.result ? (out.result.ok ? out.result.summary : 'ERRORE: ' + out.result.error) : out.disconnected);
     const { data } = await b.send('Page.captureScreenshot', { format: 'png' }, sessionId);
     writeFileSync(join(workDir('shots'), `wiring-${label.replace(/\W+/g, '_')}.png`), Buffer.from(data, 'base64'));
-    await b.send('Target.closeTarget', { targetId });
-    return { out, log };
+    if (!keepOpen) await b.send('Target.closeTarget', { targetId });
+    return { out, log, targetId, pEval };
   }
 
-  if (crossesMidnight) console.log('(orario vicino alla mezzanotte: scenario temporale semplificato)');
+  console.log(`(fuso orario emulato ${TIMEZONE}: sono le ${fmt(nowMin)})`);
   let r = await scenario('Firma dal registro di un\'altra classe', { start: 'registro:3A:1' }, 'firma');
   check('mondo isolato: clic su «Home» arrivato alla pagina', r.log.homeClicks === 1, JSON.stringify(r.log));
   check('firma la lezione in corso (4B 3ª) cliccando la sua icona', r.out.result?.ok && r.log.signClicks.join() === '4B#3', JSON.stringify(r.log.signClicks));
@@ -96,8 +96,26 @@ try {
   r = await scenario('Firma senza orari nella Home', { timesInDashboard: false }, 'firma');
   check('orari letti dalla tabella del registro, poi la classe giusta', r.out.result?.ok && r.log.opened.join() === '3A#1,4B#3' && r.log.signClicks.join() === '4B#3', JSON.stringify(r.log.opened));
 
-  r = await scenario('Appello con ora non firmata', {}, 'appello');
+  r = await scenario('Firma in classe articolata', { articolata: { '4B': { 3: { docente: 'BIANCHI ANNA', firmata: true } } }, homeFirmataDaAltri: true }, 'firma');
+  check('classe articolata: firma la tua riga anche se il collega ha già firmato', r.out.result?.ok && r.log.signClicks.join() === '4B#3' && r.log.otherClicks === 0, r.out.steps.join(' | '));
+
+  r = await scenario('Appello con ora non firmata', {}, 'appello', true);
   check('errore esplicito quando «Appello» è disattivato', r.out.result && !r.out.result.ok && /disattivato/.test(r.out.result.error), r.out.result && r.out.result.error);
+
+  // Mantenimento della sessione: il service worker vero esegue il controllo nella scheda (mondo MAIN)
+  await swEval(`chrome.storage.local.set({ keepAliveEnabled: true })`);
+  await sleep(300);
+  await swEval(`keepAliveTick()`);
+  const ka = await swEval(`chrome.storage.local.get('keepAliveStatus').then(x => x.keepAliveStatus)`);
+  check('mantenimento: richiesta autenticata dalla scheda del registro, stato salvato', ka && ka.ok && ka.action === 'ping' && ka.httpStatus === 200 && ka.noOidc === true, JSON.stringify(ka));
+  const alarm = await swEval(`chrome.alarms.get('argo-keepalive')`);
+  check('allarme del mantenimento attivo ogni minuto', alarm && alarm.periodInMinutes === 1, JSON.stringify(alarm));
+  // clic sull'icona dentro il registro con la sessione valida → impostazioni
+  await swEval(`chrome.tabs.query({ url: 'https://www.portaleargo.it/*' }).then(t => handleIconClick(t[0]))`);
+  await sleep(800);
+  const opts = (await b.send('Target.getTargets')).targetInfos.some(t => t.url.includes('/options.html'));
+  check('clic sull\'icona nel registro con la sessione valida: si aprono le impostazioni', opts);
+  await b.send('Target.closeTarget', { targetId: r.targetId });
 } catch (e) {
   console.log('FAILED', e.stack || e.message);
   results.push(false);
