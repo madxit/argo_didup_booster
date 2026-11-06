@@ -179,11 +179,15 @@
   const panel = (() => {
     let host = null, root = null, pendingAsk = null, dismissed = false;
     const $ = sel => root.querySelector(sel);
+    // Visibilità con style.display: l'attributo hidden sull'host non basta,
+    // perché «:host { all: initial }» del pannello lo annulla.
+    const isVisible = () => Boolean(host && host.isConnected && host.style.display !== 'none');
+    const setVisible = on => { if (host) host.style.display = on ? '' : 'none'; };
 
     // Clic fuori dal pannello (e fuori dai pulsanti): si chiude. Solo i clic
     // veri dell'utente: quelli che fa l'estensione nel registro non contano.
     function onOutside(e) {
-      if (!e.isTrusted || !host || host.hidden) return;
+      if (!e.isTrusted || !isVisible()) return;
       const path = e.composedPath();
       if (path.includes(host) || (bar && path.includes(bar.host))) return;
       if (path.some(n => n && n.getAttribute && n.getAttribute(ATTR) === 'guide')) return;
@@ -270,16 +274,16 @@
       $('.askbox').hidden = true;
       $('.result').hidden = true;
       setState('running');
-      host.hidden = false;
+      setVisible(true);
       dismissed = false;
       position();
     }
 
-    function show() { if (host) { host.hidden = false; dismissed = false; position(); } }
+    function show() { if (host) { setVisible(true); dismissed = false; position(); } }
 
     function close() {
       if (!host) return;
-      host.hidden = true;
+      setVisible(false);
       dismissed = true;
       // Pannello chiuso durante una domanda: vale come «no».
       if (pendingAsk) pendingAsk(false);
@@ -335,7 +339,7 @@
       if (!dismissed || !result.ok) show();
     }
 
-    const isOpen = () => Boolean(host && host.isConnected && !host.hidden);
+    const isOpen = isVisible;
     return { open, show, close, addStep, ask, done, position, isOpen };
   })();
 

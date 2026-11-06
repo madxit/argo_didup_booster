@@ -36,6 +36,7 @@ const REGISTRO = `<!DOCTYPE html><html lang="it"><head><meta charset="utf-8"><st
   .body { padding: 14px 18px 18px; }
   fieldset { border: 1px solid #d6dde6; border-radius: 6px; padding: 10px 16px 16px; margin: 0 0 14px; }
   legend { padding: 0 6px; }
+  .x-fieldset{display:block;position:relative;overflow:hidden} .x-fieldset-header{overflow:hidden} .x-fieldset-header-text{float:left}
   .argo-blue-color { color: #1f5c8b; font-weight: 600; } .argo-grey-color { color: #888; font-style: italic; }
   .tab { margin: 10px 0 6px; font-weight: 600; color: #444; }
   textarea { width: 100%; box-sizing: border-box; border: 1px solid #cfd6df; border-radius: 4px; padding: 8px; font: inherit; resize: none; }

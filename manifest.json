@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Argo DidUP Booster",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "Argo DidUP Booster: accesso automatico con SPID o CIE, pulsanti Firma e Appello nel registro, i tuoi argomenti e compiti e sessione sempre attiva.",
   "permissions": [
     "storage",
