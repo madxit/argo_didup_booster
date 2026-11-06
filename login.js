@@ -1,7 +1,8 @@
 // =====================================================================
 // login.js — accesso automatico sulle pagine di Argo (portaleargo.it).
-//   1. pagina di login: compila il codice scuola e preme
-//      "SPID - CIE - EIDAS" (prosegue poi eid.js sulla pagina del Ministero)
+//   1. pagina di login: compila il codice scuola, spunta «Ricordami» (se
+//      attivo nelle impostazioni) e preme "SPID - CIE - EIDAS" (prosegue
+//      poi eid.js sulla pagina del Ministero)
 //   2. scelta del profilo dopo SPID: seleziona quello del codice scuola
 //   3. registro aperto e con le credenziali: chiude il flusso
 // Protezione anti-loop: dopo un tentativo automatico, per 90 secondi non
@@ -30,6 +31,23 @@
     return field && button ? { field, button } : null;
   }
 
+  // «Ricordami» di Argo: senza, Argo non rinnova l'accesso da solo e dopo
+  // circa un'ora chiede di nuovo SPID o CIE (lo dice anche il messaggio
+  // «Sessione scaduta» di DidUP). Si spunta la casella senza cliccarla: il
+  // clic aprirebbe la finestra informativa di Argo. Il pulsante SPID copia
+  // poi la casella nel campo nascosto remember_me del modulo.
+  function applyRicordami(settings) {
+    const cb = document.getElementById('shared_remember_me');
+    if (!cb || !settings.ricordami) return false;
+    if (!cb.checked) {
+      cb.checked = true;
+      cb.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    const hidden = document.getElementById('spid_remember_me');
+    if (hidden) hidden.value = 'true';
+    return true;
+  }
+
   function fillCode(field, code) {
     field.focus();
     field.value = code;
@@ -44,8 +62,9 @@
       return false;
     }
     fillCode(form.field, settings.codiceScuola);
+    const ricordami = applyRicordami(settings);
     await setLoginFlow({ startedAt: Date.now(), stage: 'eid', autoAt: Date.now(), manual });
-    assistantToast.show('Accesso automatico', `Codice ${settings.codiceScuola} inserito · ${describeLoginMethod(settings)}…`);
+    assistantToast.show('Accesso automatico', `Codice ${settings.codiceScuola} inserito${ricordami ? ' · «Ricordami» spuntato' : ''} · ${describeLoginMethod(settings)}…`);
     // Il pulsante di Argo copia "Ricordami" e invia #spidForm.
     autoClicking = true;
     form.button.click();
@@ -119,8 +138,10 @@
 
     // Anche se l'utente preme a mano "SPID - CIE - EIDAS", eid.js sceglierà il provider.
     // (scrittura immediata: la pagina sta per essere abbandonata)
+    // (in fase di cattura: prima del gestore di Argo, che copia «Ricordami» e invia il modulo)
     findSpidButton().addEventListener('click', () => {
       if (autoClicking || !extensionAlive()) return;
+      applyRicordami(settings);
       setLoginFlow({ startedAt: Date.now(), stage: 'eid', autoAt: lastFlow && lastFlow.autoAt, manual: true });
     }, true);
 
