@@ -9,6 +9,9 @@
 // Le caselle si riconoscono dal campo della lezione a cui DidUP le collega
 // (desArgomento / desCompiti…), non dalla posizione: nella sezione ci sono
 // anche le schede "Compiti" nascoste.
+// Il pulsante sta a destra, sulla riga del titolo della sezione; si può
+// togliere dalle impostazioni (Funzioni nel registro). La prima volta una
+// guida con lo sfondo scuro spiega a cosa serve.
 // =====================================================================
 
 (() => {
@@ -23,6 +26,7 @@
 
   let settings = null;
   let picker = null;
+  let guideShown = false;
   const KINDS = {
     argomenti: { label: 'Argomenti', one: 'argomento', dest: 'Attività svolta', search: 'Cerca argomento…' },
     compiti: { label: 'Compiti', one: 'compito', dest: 'Compiti', search: 'Cerca compito…' }
@@ -121,11 +125,55 @@
   // Pulsante nel titolo della sezione
   // ------------------------------------------------------------------
 
+  // Colore di sfondo dietro il pulsante (copre la linea del bordo del riquadro).
+  function backgroundOf(el) {
+    for (let n = el; n && n.nodeType === 1; n = n.parentElement) {
+      const bg = getComputedStyle(n).backgroundColor;
+      if (bg && bg !== 'transparent' && !/rgba\(.*,\s*0\)$/.test(bg)) return bg;
+    }
+    return '#fff';
+  }
+
+  // A destra, centrato sulla riga del titolo (la legenda del riquadro).
+  // Il pulsante NON sta dentro il riquadro: in DidUP «.x-fieldset» ha
+  // overflow:hidden e la legenda è nella zona del bordo, quindi verrebbe
+  // tagliato via. Sta subito dopo il riquadro, nello stesso contenitore, in
+  // posizione assoluta: si misura dove finisce a 0,0 e si corregge.
+  function positionButton(host) {
+    const { title, fieldset } = host.__argo || {};
+    if (!fieldset || !fieldset.isConnected) {          // riquadro tolto da Ext: il pulsante non serve più
+      if (picker && picker.anchor === host) closePicker();
+      host.remove();
+      return;
+    }
+    if (!title || !title.isConnected) return;
+    const legend = title.closest('legend, .x-fieldset-header') || title;
+    const fr = fieldset.getBoundingClientRect();
+    const lr = legend.getBoundingClientRect();
+    if (fr.width === 0 && fr.height === 0) { host.style.visibility = 'hidden'; return; }   // scheda nascosta
+    host.style.visibility = '';
+    host.style.left = '0px';
+    host.style.top = '0px';
+    const zero = host.getBoundingClientRect();
+    const left = fr.right - 14 - zero.width - zero.left;
+    const top = lr.top + lr.height / 2 - zero.height / 2 - zero.top;
+    host.style.left = `${Math.round(left)}px`;
+    host.style.top = `${Math.round(Math.max(0, top))}px`;
+    host.style.background = backgroundOf(fieldset);
+  }
+
   function injectButton(title) {
-    if (title.querySelector(`[${HOST_ATTR}]`)) return;
+    const fieldset = fieldsetOf(title) || title.parentElement;
+    const next = fieldset.nextElementSibling;
+    if (next && next.getAttribute(HOST_ATTR) === 'button') {
+      next.__argo = { title, fieldset };      // Ext può aver ridisegnato il titolo
+      positionButton(next);
+      return next;
+    }
     const host = document.createElement('span');
     host.setAttribute(HOST_ATTR, 'button');
-    host.style.cssText = 'display:inline-block;vertical-align:middle;margin-left:12px;';
+    host.style.cssText = 'position:absolute;left:0;top:0;z-index:2;display:block;padding:0 6px;line-height:0;margin:0;';
+    host.__argo = { title, fieldset };
     const root = host.attachShadow({ mode: 'open' });
     // Stesso stile dei pulsanti «Firma ora» / «Appello» (impostazioni → Pulsanti nel registro).
     root.innerHTML = `
@@ -144,14 +192,53 @@
       if (picker && picker.anchor === host) closePicker();
       else openPicker(host, btn, fieldsetOf(title));
     });
-    title.appendChild(host);
+    // (nessuno stile cambiato sui contenitori di Ext: la posizione si corregge misurando)
+    fieldset.after(host);
+    positionButton(host);
+    return host;
+  }
+
+  function removeButtons() {
+    closePicker();
+    document.querySelectorAll(`span[${HOST_ATTR}="button"]`).forEach(h => h.remove());
   }
 
   function scan() {
     if (!isCurrent()) { observer.disconnect(); return; }
     if (!settings || !isArgoDashboardUrl(location.href, settings)) return;
-    for (const title of findTitles()) injectButton(title);
+    if (!settings.showArgomenti) { removeButtons(); return; }
+    for (const title of findTitles()) {
+      const host = injectButton(title);
+      if (host) maybeShowGuide(host);
+    }
     if (picker && !picker.anchor.isConnected) closePicker();
+  }
+
+  // ------------------------------------------------------------------
+  // Guida della prima volta
+  // ------------------------------------------------------------------
+
+  function maybeShowGuide(host) {
+    if (guideShown || !settings.guidaArgomenti || assistantGuide.isOpen()) return;
+    if (document.visibilityState !== 'visible' || !isShown(host)) return;
+    guideShown = true;
+    saveSettings({ guidaArgomenti: false }).catch(() => {});
+    const button = () => host.shadowRoot && host.shadowRoot.querySelector('button');
+    const vuoto = settings.discipline.length === 0;
+    // La finestra di modifica può ancora muoversi: si aspetta un attimo.
+    setTimeout(() => {
+      if (!host.isConnected) { guideShown = false; saveSettings({ guidaArgomenti: true }).catch(() => {}); return; }
+      assistantGuide.show([{
+        target: button, round: true,
+        title: 'Argomenti e compiti',
+        text: 'Questo pulsante non è di Argo: l\'ha aggiunto l\'estensione «Argo DidUP Booster».\n' +
+          'Apre i tuoi elenchi per la disciplina della lezione: un clic su un argomento lo scrive in «Attività svolta», ' +
+          'un clic su un compito lo scrive in «Compiti», come se l\'avessi scritto tu. Poi salvi la lezione come sempre.\n' +
+          (vuoto ? 'Non hai ancora preparato nessun elenco: li crei nelle impostazioni dell\'estensione.'
+            : 'Gli elenchi si preparano e si modificano nelle impostazioni dell\'estensione.'),
+        action: { label: vuoto ? 'Prepara gli elenchi' : 'Apri impostazioni', onClick: openExtensionOptions }
+      }]);
+    }, 700);
   }
 
   // ------------------------------------------------------------------
@@ -385,7 +472,8 @@
         list.style.maxHeight = Math.max(120, maxH - 190) + 'px';
         const w = panel.offsetWidth;
         const h = panel.offsetHeight;
-        let left = Math.min(Math.max(8, r.left), window.innerWidth - w - 8);
+        // allineato al bordo destro del pulsante (che sta a destra nel riquadro)
+        let left = Math.min(Math.max(8, r.right - w), window.innerWidth - w - 8);
         let top = r.bottom + 6;
         if (top + h > window.innerHeight - 8) top = Math.max(8, r.top - h - 6);
         host.style.left = (left - origin.left) + 'px';
@@ -460,8 +548,10 @@
 
   chrome.storage.onChanged.addListener(async (changes, area) => {
     if (area !== 'local' || !isCurrent()) return;
-    if (changes.discipline || changes.argoDashboardPattern || changes.argoLoginUrl || changes.buttonsTheme) {
+    if (changes.discipline || changes.argoDashboardPattern || changes.argoLoginUrl || changes.buttonsTheme ||
+        changes.showArgomenti || changes.guidaArgomenti) {
       settings = await loadSettings();
+      if (changes.guidaArgomenti && changes.guidaArgomenti.newValue === true) guideShown = false;   // riattivata dalle impostazioni
       if (picker) picker.refresh();
       if (changes.buttonsTheme) {
         document.querySelectorAll(`span[${HOST_ATTR}="button"]`).forEach(h => {
@@ -477,6 +567,10 @@
     settings = s;
     if (!isArgoPortalUrl(location.href) && !isArgoDashboardUrl(location.href, s)) return;
     observer.observe(document.documentElement, { childList: true, subtree: true });
+    // Ext ridispone le finestre senza aggiungere nodi (es. ridimensionamento): si riallinea spesso, costa poco.
+    const realign = () => document.querySelectorAll(`span[${HOST_ATTR}="button"]`).forEach(positionButton);
+    window.addEventListener('resize', realign);
+    const realignTimer = setInterval(() => { if (!isCurrent()) clearInterval(realignTimer); else realign(); }, 700);
     scan();
   }).catch(err => console.warn('[Argo DidUP Booster] Argomenti:', err));
 })();

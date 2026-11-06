@@ -57,6 +57,22 @@ body {
   transition: opacity .3s;
 }
 .save-indicator.visible { opacity: 1; }
+.repo-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 13px;
+  background: #fff;
+}
+.repo-link:hover { background: #f3f4f6; border-color: #d1d5db; }
+.page-foot { text-align: center; color: var(--muted); font-size: 12.5px; padding: 4px 0 12px; }
+.page-foot a { color: var(--primary); }
 
 main {
   max-width: 920px;
@@ -232,6 +248,18 @@ select:disabled { opacity: .5; }
 ul.hint.list { padding-left: 20px; }
 ul.hint.list li { margin: 3px 0; }
 
+/* ---------- Funzioni nel registro ---------- */
+.feature-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 4px; }
+.feature { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; }
+.feature:has(input:checked) { border-color: #c7d4f5; background: #f7f9ff; }
+.feature:not(:has(input:checked)) .feature-icon, .feature:not(:has(input:checked)) .feature-text { opacity: .55; }
+.feature-icon { flex: none; width: 34px; height: 34px; }
+.feature-text { display: flex; flex-direction: column; line-height: 1.35; }
+.feature-text small { color: var(--muted); font-size: 12.5px; }
+.subhead { margin: 18px 0 2px; font-size: 14px; }
+.check-row { display: flex; align-items: flex-start; gap: 9px; margin: 8px 0 0; cursor: pointer; line-height: 1.4; }
+.check-row input { margin: 2px 0 0; width: 16px; height: 16px; flex: none; accent-color: var(--primary); }
+
 /* ---------- Pulsanti nel registro ---------- */
 .buttons-layout { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(340px, 1.25fr); gap: 22px; align-items: start; }
 @media (max-width: 760px) { .buttons-layout { grid-template-columns: 1fr; } }
@@ -253,13 +281,15 @@ ul.hint.list li { margin: 3px 0; }
 .pv-logo b { color: #f8b133; }
 .pv-school { font-size: 13px; color: #234e66; font-weight: 600; }
 .pv-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
-.pv-help { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: #11799c; color: #fff; font-weight: 700; }
+.pv-help { box-sizing: border-box; width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: #fff;
+  border: 2px solid #ff9625; color: #ff9625; font-weight: 700; font-size: 15px; }
 .pv-profile { font-size: 12px; color: #234e66; border: 1px solid #c9d7df; border-radius: 6px; padding: 4px 8px; }
 .pv-buttons { position: absolute; top: 50%; transform: translateY(-50%); display: flex; gap: 6px; }
 .pv-body { display: flex; min-height: 150px; }
 .pv-menu { width: 82px; background: #234e66; color: #dce8ee; font-size: 11px; display: flex; flex-direction: column; gap: 10px; padding: 12px 10px; border-radius: 0 0 0 10px; }
 .pv-content { flex: 1; padding: 12px; }
-.pv-fieldset { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 8px 10px; border: 1px solid #d6dde6; border-radius: 6px 6px 0 0; background: #fff; font-size: 12px; }
+.pv-fieldset { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: nowrap; padding: 8px 10px; border: 1px solid #d6dde6; border-radius: 6px 6px 0 0; background: #fff; font-size: 12px; }
+.pv-legend { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pv-legend b { color: #11799c; } .pv-legend i { color: #888; }
 .pv-textarea { height: 56px; background: #fff; border: 1px solid #d6dde6; border-top: 0; border-radius: 0 0 6px 6px; }
 
@@ -267,6 +297,8 @@ ul.hint.list li { margin: 3px 0; }
 .status-line:empty { display: none; }
 .status-line.ok { color: var(--ok); }
 .status-line.err { color: var(--danger); }
+.status-line.warn { color: #b45309; }
+.status-sub { margin-top: 10px; color: var(--text); font-weight: 600; font-size: 12.5px; }
 .status-line ul { margin: 6px 0 0; padding-left: 20px; color: var(--muted); }
 
 .kbd {

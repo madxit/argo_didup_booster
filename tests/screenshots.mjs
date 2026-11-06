@@ -18,7 +18,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const SETTINGS = {
   schemaVersion: 1, codiceScuola: 'SG12345', docenteNome: 'ROSSI MARIO', loginMethod: 'spid', spidProvider: 'posteid',
-  autoLogin: true, keepAliveEnabled: true, buttonsPosition: 'right', buttonsTheme: 'vivid',
+  autoLogin: true, ricordami: true, keepAliveEnabled: true, buttonsPosition: 'right', buttonsTheme: 'argo', guidaPulsanti: false, guidaArgomenti: false,
   discipline: [
     { nome: 'Informatica', argomenti: ['Algoritmi e diagrammi di flusso', 'Variabili e tipi di dato', 'Strutture di selezione', 'Cicli for e while', 'Array e matrici'],
       compiti: ['Esercizi 1-5 pag. 32', 'Scrivere il diagramma di flusso del problema 3'] },
@@ -36,6 +36,7 @@ const REGISTRO = `<!DOCTYPE html><html lang="it"><head><meta charset="utf-8"><st
   .body { padding: 14px 18px 18px; }
   fieldset { border: 1px solid #d6dde6; border-radius: 6px; padding: 10px 16px 16px; margin: 0 0 14px; }
   legend { padding: 0 6px; }
+  .x-fieldset{display:block;position:relative;overflow:hidden} .x-fieldset-header{overflow:hidden} .x-fieldset-header-text{float:left}
   .argo-blue-color { color: #1f5c8b; font-weight: 600; } .argo-grey-color { color: #888; font-style: italic; }
   .tab { margin: 10px 0 6px; font-weight: 600; color: #444; }
   textarea { width: 100%; box-sizing: border-box; border: 1px solid #cfd6df; border-radius: 4px; padding: 8px; font: inherit; resize: none; }
@@ -64,7 +65,7 @@ const REGISTRO = `<!DOCTYPE html><html lang="it"><head><meta charset="utf-8"><st
     window.Ext = { getCmp: id => cmps[id], Ajax: { getDefaultHeaders: () => ({ Authorization: 'Bearer x' }) } };
     window.getUrlBase = () => '/api/';
   </script>
-  ${['page-bridge.js', 'mock-chrome.js', 'settings.js', 'content-common.js', 'argomenti.js'].map(f => `<script src="/ext/${f}"></script>`).join('')}
+  ${['page-bridge.js', 'mock-chrome.js', 'settings.js', 'content-common.js', 'sessione.js', 'argomenti.js'].map(f => `<script src="/ext/${f}"></script>`).join('')}
 </body></html>`;
 
 const server = http.createServer((req, res) => {
@@ -79,7 +80,7 @@ const server = http.createServer((req, res) => {
   if (url.pathname === '/voti/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end(REGISTRO); }
   if (url.pathname === '/voti/app') {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    return res.end(MOCK.replace('</body>', ['page-bridge.js', 'mock-chrome.js', 'settings.js', 'content-common.js', 'azioni.js', 'toolbar.js']
+    return res.end(MOCK.replace('</body>', ['page-bridge.js', 'mock-chrome.js', 'settings.js', 'content-common.js', 'sessione.js', 'azioni.js', 'toolbar.js']
       .map(f => `<script src="/ext/${f}"></script>`).join('') + '</body>'));
   }
   res.writeHead(404); res.end();
@@ -154,11 +155,13 @@ const DIDUP = { times, utente: 'ROSSI MARIO', docenteRiga: 'ROSSI MARIO',
   classi: [{ classe: '3A', lezioni: [{ numOra: 1, materia: 'INFORMATICA' }, { numOra: 2, materia: 'INFORMATICA' }] },
     { classe: '4B', lezioni: [{ numOra: 3, materia: 'TPSIT' }] }, { classe: '2C', lezioni: [{ numOra: 5, materia: 'INFORMATICA' }] }] };
 await send('Emulation.setDeviceMetricsOverride', { width: 1100, height: 640, deviceScaleFactor: 1.5, mobile: false });
-const didup = async cfg => {
+const didup = async (cfg, extraSettings = {}, wait = 1300) => {
   await navigate(`${BASE}/voti/app`, 100);
-  await store({ ...SETTINGS, argoDashboardPattern: `${BASE}/voti/`, argoLoginUrl: `${BASE}/auth/sso/login`, basePortalUrl: `${BASE}/voti/` });
-  await navigate(`${BASE}/voti/app#${encodeURIComponent(JSON.stringify({ ...DIDUP, ...cfg }))}`, 1300);
+  await store({ ...SETTINGS, argoDashboardPattern: `${BASE}/voti/`, argoLoginUrl: `${BASE}/auth/sso/login`, basePortalUrl: `${BASE}/voti/`, ...extraSettings });
+  await navigate(`${BASE}/voti/app#${encodeURIComponent(JSON.stringify({ ...DIDUP, ...cfg }))}`, wait);
 };
+const waitGuide = () => evaluate(`for (let i = 0; i < 80 && !document.querySelector('[data-argo-assistant="guide"]'); i++) await new Promise(r => setTimeout(r, 100));
+  await new Promise(r => setTimeout(r, 600));`);
 const tb = js => evaluate(`const root = document.querySelector('[data-argo-assistant="toolbar"]').shadowRoot; ${js}`);
 // ritaglio: dalla barra in alto fino al pannello dei passi
 async function shotPanel(name) {
@@ -188,6 +191,15 @@ await sleep(300);
 }
 await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 600 });
 
+// Guida della prima volta sui pulsanti
+await didup({}, { guidaPulsanti: true }, 300);
+await waitGuide();
+{
+  const { data } = await send('Page.captureScreenshot', { format: 'png', clip: { x: 440, y: 0, width: 660, height: 330, scale: 1 } });
+  fs.writeFileSync(path.join(OUT, 'guida-pulsanti.png'), Buffer.from(data, 'base64'));
+  console.log('  ✔', path.join('docs', 'img', 'guida-pulsanti.png'));
+}
+
 // Firma in una classe articolata: il collega ha già firmato la sua riga della stessa ora
 await didup({ articolata: { '4B': { 3: { docente: 'BIANCHI ANNA', materia: 'LABORATORIO', firmata: true } } }, signed: ['3A#1', '3A#2'] });
 await tb(`root.querySelector('[data-action="firma"]').click()`);
@@ -210,10 +222,14 @@ await send('Emulation.clearTimezoneOverride').catch(() => send('Emulation.setTim
 // ---------------- impostazioni ----------------
 await send('Emulation.setDeviceMetricsOverride', { width: 980, height: 1200, deviceScaleFactor: 1.5, mobile: false });
 await navigate(`${BASE}/ext/options.html`, 100);
-await store(SETTINGS);
+// stato della sessione di esempio: ultimo controllo adesso, ultima ricarica automatica 25 minuti fa
+const t0 = Date.now();
+await store({ ...SETTINGS, keepAliveStatus: { time: t0, tabId: 1, ok: true, expired: false, action: 'check', idleMin: 10, idleSec: 120,
+  lastUse: t0 - 2 * 60000, nextReloadAt: t0 + 8 * 60000, tokenExpiresAt: t0 + 41 * 60000, lastReloadAt: t0 - 25 * 60000, lastReloadReason: 'inattività' } });
 await navigate(`${BASE}/ext/options.html`, 700);
 await shot('impostazioni-accesso.png', '#sec-scuola', 6);
 await shot('impostazioni-sessione.png', '#sec-sessione', 6);
+await shot('impostazioni-funzioni.png', '#sec-funzioni', 6);
 await shot('impostazioni-pulsanti.png', '#sec-pulsanti', 6);
 await evaluate(`document.querySelectorAll('#discipline-list li')[1].click()`);
 await sleep(300);
@@ -235,6 +251,13 @@ await shot('argomenti-registro.png');
 await evaluate(`document.querySelector('[data-argo-assistant-topics="picker"]').shadowRoot.querySelector('.tabs button[data-kind=compiti]').click();`);
 await sleep(300);
 await shot('compiti-registro.png');
+
+// Guida della prima volta su «Argomenti e compiti»
+await navigate(`${BASE}/voti/?classic`, 100);
+await store({ ...SETTINGS, guidaArgomenti: true, argoDashboardPattern: `${BASE}/voti/?classic`, argoLoginUrl: `${BASE}/auth/sso/login`, basePortalUrl: `${BASE}/voti/` });
+await navigate(`${BASE}/voti/?classic`, 300);
+await waitGuide();
+await shot('guida-argomenti.png');
 
 ws.close();
 chrome.kill('SIGKILL');

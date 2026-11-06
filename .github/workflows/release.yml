@@ -1,0 +1,115 @@
+# Rilascio automatico del pacchetto dell'estensione.
+#
+# Parte quando si pubblica un tag di versione (git flow: "Release-X.Y.Z"; va
+# bene anche "vX.Y.Z" o "X.Y.Z") oppure a mano da GitHub (Actions → Rilascio →
+# Run workflow). Prende il contenuto del repository, toglie quello che non serve
+# all'estensione (test, immagini della guida, file .md e file di sviluppo) e
+# crea argo_didup_booster-X.Y.Z.zip, che contiene la cartella
+# "argo_didup_booster" pronta da caricare in Chrome. Lo zip viene allegato alla
+# release di GitHub del tag (creata se non esiste ancora).
+name: Rilascio
+
+on:
+  push:
+    tags:
+      - 'Release-*'
+      - 'v[0-9]*'
+      - '[0-9]*.[0-9]*.[0-9]*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag della release (vuoto = Release-<versione del manifest>)'
+        required: false
+        default: ''
+
+permissions:
+  contents: write
+
+jobs:
+  pacchetto:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Scarica il repository
+        uses: actions/checkout@v4
+
+      - name: Versione dal manifest
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          VERSION=$(jq -r '.version' manifest.json)
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Versione non valida in manifest.json: '$VERSION'"
+            exit 1
+          fi
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            TAG="$GITHUB_REF_NAME"
+            TAG_VERSION="${TAG#Release-}"
+            TAG_VERSION="${TAG_VERSION#v}"
+            if [[ "$TAG_VERSION" != "$VERSION" ]]; then
+              echo "::error::Il tag $TAG non corrisponde alla versione del manifest ($VERSION): aggiorna \"version\" in manifest.json"
+              exit 1
+            fi
+          else
+            TAG="${{ github.event.inputs.tag }}"
+            [[ -n "$TAG" ]] || TAG="Release-$VERSION"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "zip=argo_didup_booster-$VERSION.zip" >> "$GITHUB_OUTPUT"
+          echo "Versione $VERSION, tag $TAG"
+
+      - name: Prepara la cartella argo_didup_booster
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT=dist/argo_didup_booster
+          mkdir -p "$OUT"
+          # tutto il repository tranne quello che non serve all'estensione
+          rsync -a \
+            --exclude '.git/' --exclude '.github/' --exclude 'dist/' \
+            --exclude 'tests/' --exclude 'tools/' --exclude 'docs/img/' \
+            --exclude '*.md' \
+            --exclude '.gitignore' --exclude '.gitattributes' --exclude '.DS_Store' --exclude 'desktop.ini' \
+            ./ "$OUT/"
+          # cartelle rimaste vuote (es. docs/ senza img/)
+          find "$OUT" -type d -empty -delete
+          test -f "$OUT/manifest.json"
+          echo "Contenuto del pacchetto:"
+          (cd "$OUT" && find . -type f | sort)
+
+      - name: Crea lo zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd dist
+          zip -r -X -9 "${{ steps.ver.outputs.zip }}" argo_didup_booster
+          # controlli: la cartella giusta, niente test né documentazione
+          unzip -l "${{ steps.ver.outputs.zip }}" | grep -q ' argo_didup_booster/manifest.json$'
+          if unzip -l "${{ steps.ver.outputs.zip }}" | grep -E ' argo_didup_booster/(tests/|docs/img/|[^/]*\.md$)'; then
+            echo "::error::Nel pacchetto sono rimasti file che andavano tolti"
+            exit 1
+          fi
+          ls -l "${{ steps.ver.outputs.zip }}"
+
+      - name: Pubblica nella release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.ver.outputs.tag }}"
+          ZIP="dist/${{ steps.ver.outputs.zip }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$ZIP" --clobber
+          else
+            gh release create "$TAG" "$ZIP" --target "$GITHUB_SHA" \
+              --title "Argo DidUP Booster ${{ steps.ver.outputs.version }}" \
+              --notes "Scarica **${{ steps.ver.outputs.zip }}** (qui sotto, in *Assets*), estrailo e carica la cartella \`argo_didup_booster\` da \`chrome://extensions\` (Modalità sviluppatore → Carica estensione non pacchettizzata). Istruzioni complete nel README."
+          fi
+
+      - name: Conserva lo zip tra gli artefatti
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.ver.outputs.zip }}
+          path: dist/${{ steps.ver.outputs.zip }}

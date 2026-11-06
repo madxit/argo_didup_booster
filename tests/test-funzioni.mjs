@@ -18,7 +18,7 @@ const IDPS = ['intesigroup', 'namirialid', 'sielteid', 'arubaid', 'etnaid', 'spi
 
 // ---------------- finto server ----------------
 const stats = {};
-function resetStats() { Object.assign(stats, { eidPosts: [], idp: [], identity: [], pings: 0, pingHeaders: null, expire: false, loggedIn: false }); }
+function resetStats() { Object.assign(stats, { eidPosts: [], remember: [], idp: [], identity: [], pings: 0, pingHeaders: null, expire: false, loggedIn: false }); }
 resetStats();
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.svg': 'image/svg+xml' };
 const scripts = list => list.map(f => `<script src="/ext/${f}"></script>`).join('');
@@ -26,6 +26,7 @@ const html = (res, body) => { res.writeHead(200, { 'content-type': 'text/html; c
 const readBody = req => new Promise(r => { let d = ''; req.on('data', c => d += c); req.on('end', () => r(d)); });
 
 const REGISTRO = `
+  <style>/* come in DidUP (voti-all.css): il riquadro taglia quello che sta sulla legenda */ .x-fieldset{display:block;position:relative;overflow:hidden} .x-fieldset-header{overflow:hidden} .x-fieldset-header-text{float:left}</style>
   <h1>Registro finto</h1>
   <div class="x-window" style="position:absolute;left:40px;top:60px;width:900px;background:#fff;border:1px solid #ccc;padding:16px">
     <fieldset class="x-fieldset lightBorder" style="padding:10px 20px">
@@ -74,7 +75,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (p === '/voti/') {
     if (!stats.loggedIn) { res.writeHead(302, { location: '/auth/sso/login/?login_challenge=abc' }); return res.end(); }
-    return html(res, REGISTRO + scripts(['page-bridge.js', 'mock-chrome.js', 'settings.js', 'content-common.js', 'login.js', 'argomenti.js', 'azioni.js', 'toolbar.js']));
+    return html(res, REGISTRO + scripts(['page-bridge.js', 'mock-chrome.js', 'settings.js', 'content-common.js', 'login.js', 'sessione.js', 'argomenti.js', 'azioni.js', 'toolbar.js']));
   }
   if (p === '/auth/sso/login/') {
     return html(res, `
@@ -90,6 +91,7 @@ const server = http.createServer(async (req, res) => {
   if (p === '/auth/eid-gateway/sso' && req.method === 'POST') {
     const body = new URLSearchParams(await readBody(req));
     stats.eidPosts.push(body.get('customer_code'));
+    stats.remember.push(body.get('remember_me'));
     res.writeHead(302, { location: '/eid-gateway/?client_id=9e75&state=s1' });
     return res.end();
   }
@@ -198,12 +200,13 @@ const toast = () => evaluate(`const h = document.querySelector('[data-argo-assis
 
 // ============ ACCESSO AUTOMATICO ============
 console.log('\n[Accesso automatico]');
-const base = { codiceScuola: 'SG18328', loginMethod: 'spid', spidProvider: 'posteid', autoLogin: true, ...URLS };
+const base = { codiceScuola: 'SG18328', loginMethod: 'spid', spidProvider: 'posteid', autoLogin: true, guidaPulsanti: false, guidaArgomenti: false, ...URLS };
 
 resetStats();
 await setStore(base);
 await navigate(`${BASE}/voti/`, 2500);
 check(stats.eidPosts[0] === 'SG18328', 'login Argo: codice scuola compilato e "SPID - CIE - EIDAS" premuto');
+check(stats.remember[0] === 'true', '«Ricordami» spuntato: Argo riceve remember_me=true (poi rinnova l\'accesso senza SPID)');
 check(stats.idp[0] === 'posteid', 'pagina del Ministero: scelto il provider impostato (Poste ID) tra i provider in ordine casuale');
 let s = await store();
 check(s.loginFlow && s.loginFlow.stage === 'idp', 'flusso passato al provider (non riparte se si torna indietro)');
@@ -261,6 +264,13 @@ await navigate(`${BASE}/voti/`, 1200);
 await evaluate(`document.getElementById('customer_code').value = 'SG18328'; document.querySelector('a.button-spid').click();`);
 await sleep(2000);
 check(stats.idp[0] === 'posteid', 'clic manuale su "SPID - CIE - EIDAS": la pagina del Ministero sceglie il provider');
+check(stats.remember[0] === 'true', '…e anche così «Ricordami» viene spuntato');
+
+// «Ricordami» disattivato nelle impostazioni: la casella resta com'è
+resetStats();
+await setStore({ ...base, ricordami: false });
+await navigate(`${BASE}/voti/`, 2500);
+check(stats.eidPosts.length === 1 && stats.remember[0] === 'false', '«Ricordami» disattivato nelle impostazioni: la casella non viene toccata');
 
 // Pagina del Ministero aperta senza passare da Argo: non fa nulla
 resetStats();
@@ -289,43 +299,37 @@ resetStats();
 stats.loggedIn = true;
 await setStore({ ...base, ...URLS, keepAliveEnabled: true });
 await navigate(`${BASE}/voti/?classic`, 1200);
-// keepAliveInPage è la funzione che il service worker esegue nella pagina (mondo MAIN)
-const kaRun = (user, renewResult) => evaluate(`
+// sessionInPage è la funzione che il service worker esegue nella pagina (mondo MAIN) ogni minuto
+const inPage = (user, extra = '') => evaluate(`
   window.importScripts = () => {};
-  if (typeof keepAliveInPage !== 'function') {
+  if (typeof sessionInPage !== 'function') {
     const sc = document.createElement('script'); sc.src = '/ext/background.js'; document.body.append(sc);
     await new Promise(r => sc.onload = r);
   }
-  window.__renewCalls = window.__renewCalls || 0;
-  let headers = window.Ext.Ajax.getDefaultHeaders();
-  window.Ext.Ajax.getDefaultHeaders = () => headers;
-  window.Ext.Ajax.setDefaultHeaders = h => { headers = h; };
-  window.WSX = { util: {
-    userManager: ${user ? `{ getUser: async () => (${JSON.stringify(user)}),
-      signinSilent: async () => { window.__renewCalls++; const r = ${JSON.stringify(renewResult || null)}; if (!r || r.error) throw new Error(r ? r.error : 'login_required'); return r; } }` : 'undefined'},
-    handleAuthSessionRenewed: u => { headers = Object.assign({}, headers, { Authorization: 'Bearer ' + u.access_token }); }
-  } };
-  if (window.__argoBoosterKa) window.__argoBoosterKa.lastRenewTry = 0;   // nel test un giro non dura un minuto
-  return await keepAliveInPage(240000, 600);`);
-let r = await kaRun({ expires_in: 3000, expired: false });
-check(r.state === 'ok' && r.pinged && !r.renewTried && stats.pings === 1, 'token ancora valido a lungo: solo la richiesta autenticata, nessun rinnovo');
-check(stats.pingHeaders && stats.pingHeaders.auth === 'Bearer tok-123' && stats.pingHeaders.sid === 'sid-456' && stats.pingHeaders.method === 'GET',
-  'la richiesta usa le credenziali dell\'app (Authorization + x-auth-token), metodo GET');
-r = await kaRun({ expires_in: 3000, expired: false });
-check(!r.pinged && stats.pings === 1, 'meno di 4 minuti dopo: nessuna nuova richiesta');
-r = await kaRun({ expires_in: 420, expired: false }, { access_token: 'tok-new', expires_in: 3600 });
-check(r.renewed && r.expiresIn === 3600 && r.pinged && stats.pingHeaders.auth === 'Bearer tok-new',
-  'token in scadenza (7 min): rinnovato con il comando di DidUP (signinSilent) e usato subito', JSON.stringify(r));
-r = await kaRun({ expires_in: 300, expired: false }, { error: 'login_required' });
-check(!r.renewed && r.renewError === 'login_required' && r.state === 'ok', 'rinnovo rifiutato da Argo: errore registrato, sessione ancora valida finché il token dura', JSON.stringify(r));
-stats.expire = true;
-r = await kaRun({ expires_in: -10, expired: true }, { error: 'login_required' });
-check(r.state === 'expired' && r.firstExpired, 'token scaduto e server che risponde 401: sessione scaduta (segnalata una volta)', JSON.stringify(r));
-r = await kaRun({ expires_in: -70, expired: true }, { error: 'login_required' });
-check(r.state === 'expired' && !r.firstExpired, '…e non la segnala di nuovo a ogni minuto');
-stats.expire = false;
-r = await kaRun(null);
-check(r.state === 'ok' && r.noOidc, 'senza il gestore del token (pagina diversa): solo la richiesta al server');
+  window.WSX = { util: { userManager: ${user ? `{ getUser: async () => (${JSON.stringify(user)}) }` : 'undefined'} } };
+  ${extra}
+  return await sessionInPage();`);
+const expAt = Math.round(Date.now() / 1000) + 2400;
+let r = await inPage({ expires_at: expAt, expired: false });
+check(r.state === 'ok' && r.tokenExpiresAt === expAt * 1000 && r.loadedAt > Date.now() - 60000 && /finestra di DidUP/.test(r.busy || ''),
+  'sessione valida, token letto da DidUP; c\'è una finestra aperta (modifica lezione): la pagina non va ricaricata', JSON.stringify(r));
+const before = r.lastActivity || 0;
+await sleep(3200);
+await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 500, y: 700 });
+await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 520, y: 720 });
+r = await inPage({ expires_at: expAt, expired: false });
+check(r.lastActivity > before && r.lastActivity > Date.now() - 5000, 'movimento del mouse: l\'ora dell\'ultimo uso viene aggiornata (il conteggio riparte)', JSON.stringify(r));
+r = await inPage({ expires_at: expAt, expired: false }, `document.querySelector('.x-window').style.display = 'none';`);
+check(r.state === 'ok' && !r.busy, 'finestra chiusa: si può ricaricare', JSON.stringify(r));
+r = await inPage({ expires_at: expAt, expired: false }, `document.documentElement.dataset.argoBoosterBusy = 'firma';`);
+check(/Firma ora o Appello/.test(r.busy || ''), 'Firma ora al lavoro: non si ricarica', JSON.stringify(r));
+r = await inPage({ expires_at: expAt - 3000, expired: true }, `delete document.documentElement.dataset.argoBoosterBusy;`);
+check(r.state === 'expired' && r.why === 'token' && !r.busy, 'token scaduto: sessione scaduta (causa: token)', JSON.stringify(r));
+r = await inPage({ expires_at: expAt, expired: false }, `const mb = document.createElement('div'); mb.className = 'x-window x-message-box'; mb.id = 'mbx';
+  mb.style.cssText = 'position:fixed;left:10px;top:10px;width:200px;height:80px;background:#fff'; mb.textContent = 'Attenzione Sessione scaduta'; document.body.append(mb);`);
+check(r.state === 'expired' && r.why === 'msg' && !r.busy, 'messaggio «Sessione scaduta» di DidUP: sessione scaduta (causa: server), non conta come finestra aperta', JSON.stringify(r));
+r = await inPage(null, `document.getElementById('mbx').remove(); window.Ext.Ajax.getDefaultHeaders = () => ({});`);
+check(r.state === 'not-logged', 'senza credenziali (pagina prima dell\'accesso): nessuna azione', JSON.stringify(r));
 stats.loggedIn = false;
 
 // ============ I MIEI ARGOMENTI NEL REGISTRO ============
@@ -340,7 +344,15 @@ await setStore({ ...base, keepAliveEnabled: false, discipline: [
 await navigate(`${BASE}/voti/?classic`, 1200);
 check(await evaluate(`return !!document.documentElement && !!document.querySelector('.x-window')`), 'il registro resta intatto dopo l\'avvio degli script');
 check(await evaluate(`return document.querySelectorAll('[data-argo-assistant-topics="button"]').length`) === 1 &&
-  await evaluate(`return !!document.querySelector('#title1 [data-argo-assistant-topics="button"]')`), 'pulsante solo accanto a "Registro di classe · Docenti ed alunni"');
+  await evaluate(`return document.querySelector('[data-argo-assistant-topics="button"]').previousElementSibling === document.getElementById('title1').closest('fieldset')`),
+  'pulsante solo nella sezione "Registro di classe · Docenti ed alunni"');
+let al = await evaluate(`const h = document.querySelector('[data-argo-assistant-topics="button"]'); const b = h.shadowRoot.querySelector('button').getBoundingClientRect();
+  const f = h.parentElement.getBoundingClientRect(); const lg = document.querySelector('#title1').closest('legend').getBoundingClientRect();
+  const f2 = h.previousElementSibling.getBoundingClientRect(); const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+  return { gapRight: f2.right - b.right, mid: b.top + b.height / 2, legendMid: lg.top + lg.height / 2, titleRight: document.getElementById('title1').getBoundingClientRect().right, left: b.left,
+    visible: hit === h, fieldsetOverflow: getComputedStyle(h.previousElementSibling).overflow };`);
+check(al.visible && al.fieldsetOverflow === 'hidden' && al.gapRight > 10 && al.gapRight < 30 && Math.abs(al.mid - al.legendMid) < 2 && al.left > al.titleRight + 100,
+  'allineato a destra, sulla stessa riga del titolo del riquadro');
 await shot('13-registro-pulsante', `const r = document.querySelector('.x-window').getBoundingClientRect()`);
 
 const openPicker = () => evaluate(`document.querySelector('[data-argo-assistant-topics="button"]').shadowRoot.querySelector('button').click();`);
@@ -393,10 +405,39 @@ await pk(`root.querySelector('select').dispatchEvent(new KeyboardEvent('keydown'
 await sleep(100);
 check(await evaluate(`return !document.querySelector('[data-argo-assistant-topics="picker"]') && window.__escapesSeenByPage === 0`), 'Esc chiude il pannello senza arrivare a Ext JS (non chiude la finestra del registro)');
 
-// Ext ridisegna il titolo: il pulsante ricompare
-await evaluate(`document.getElementById('title1').innerHTML = '<span>Registro di classe</span><span>Docenti ed alunni</span>';`);
+// Ext ridisegna il riquadro: il pulsante ricompare (uno solo)
+await evaluate(`document.querySelector('[data-argo-assistant-topics="button"]').remove(); document.getElementById('title1').innerHTML = '<span>Registro di classe</span><span>Docenti ed alunni</span>';`);
 await sleep(700);
-check(await evaluate(`return !!document.querySelector('#title1 [data-argo-assistant-topics="button"]')`), 'se Ext JS ridisegna il titolo, il pulsante viene reinserito');
+check(await evaluate(`return document.querySelectorAll('[data-argo-assistant-topics="button"]').length`) === 1, 'se Ext JS ridisegna il riquadro, il pulsante viene reinserito');
+// Ext ridimensiona la finestra senza aggiungere nodi: il pulsante la segue
+al = await evaluate(`document.querySelector('.x-window').style.width = '700px'; await new Promise(r => setTimeout(r, 900));
+  const h = document.querySelector('[data-argo-assistant-topics="button"]'); const b = h.shadowRoot.querySelector('button').getBoundingClientRect();
+  return { gapRight: h.previousElementSibling.getBoundingClientRect().right - b.right, visible: document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2) === h };`);
+check(al.visible && al.gapRight > 10 && al.gapRight < 30, 'finestra ridimensionata da Ext: il pulsante resta a destra sulla riga del titolo');
+await evaluate(`document.querySelector('.x-window').style.width = '900px';`);
+
+// Funzione tolta dalle impostazioni e rimessa
+await evaluate(`await chrome.storage.local.set({ showArgomenti: false }); await new Promise(r => setTimeout(r, 300));`);
+check(await evaluate(`return document.querySelectorAll('[data-argo-assistant-topics="button"]').length`) === 0, '«Argomenti e compiti» tolto nelle impostazioni: il pulsante sparisce subito');
+await evaluate(`await chrome.storage.local.set({ showArgomenti: true }); await new Promise(r => setTimeout(r, 300));`);
+check(await evaluate(`return document.querySelectorAll('[data-argo-assistant-topics="button"]').length`) === 1, '…e rimesso: ricompare');
+
+// Guida della prima volta (riattivata dalle impostazioni con la modifica della lezione aperta: compare subito)
+await evaluate(`await chrome.storage.local.set({ guidaArgomenti: true });`);
+let gd = await evaluate(`for (let i = 0; i < 40 && !document.querySelector('[data-argo-assistant="guide"]'); i++) await new Promise(r => setTimeout(r, 100));
+  const g = document.querySelector('[data-argo-assistant="guide"]'); if (!g) return null; await new Promise(r => setTimeout(r, 400));
+  const gr = g.shadowRoot, hole = gr.querySelector('.hole').getBoundingClientRect();
+  const b = document.querySelector('[data-argo-assistant-topics="button"]').shadowRoot.querySelector('button').getBoundingClientRect();
+  return { title: gr.querySelector('h3').textContent, text: gr.querySelector('.text').textContent, extra: gr.querySelector('.extra').textContent,
+    covers: hole.left <= b.left && hole.right >= b.right && hole.top <= b.top && hole.bottom >= b.bottom, stored: (await chrome.storage.local.get('guidaArgomenti')).guidaArgomenti };`);
+check(gd && gd.title === 'Argomenti e compiti' && /l'ha aggiunto l'estensione «Argo DidUP Booster»/.test(gd.text) && /Attività svolta/.test(gd.text) && gd.covers && gd.stored === false &&
+  gd.extra === 'Apri impostazioni', "prima modifica di una lezione: guida sul pulsante, dice che l'ha aggiunto l'estensione e come funziona; poi non si ripresenta");
+await shot('16-guida-argomenti');
+await evaluate(`window.__calls = []; document.querySelector('[data-argo-assistant="guide"]').shadowRoot.querySelector('.extra').click();`);
+check((await evaluate(`return window.__calls`)).some(c => c[0] === 'sendMessage' && c[1].type === 'open-options'), '«Apri impostazioni» dalla guida');
+await evaluate(`document.querySelector('[data-argo-assistant="guide"]').shadowRoot.querySelector('.next').click();`);
+await navigate(`${BASE}/voti/?classic`, 2000);
+check(await evaluate(`return !document.querySelector('[data-argo-assistant="guide"]')`), 'alla modifica successiva la guida non ricompare');
 
 // Clic fuori chiude
 await openPicker();
@@ -446,7 +487,7 @@ calls = await evaluate(`return window.__calls`);
 check(calls.some(c => c[0] === 'action.setPopup' && c[1].popup === '' && c[1].tabId === undefined) && calls.some(c => c[0] === 'action.setPopup' && c[1].tabId === 5 && c[1].popup === '') &&
   calls.some(c => c[0] === 'alarms.create' && c[1] === 'argo-keepalive' && c[2].periodInMinutes === 1),
   'dopo l\'aggiornamento: niente più popup (il clic va sempre al service worker) e allarme del mantenimento ogni minuto');
-check(calls.some(c => c[0] === 'executeScript' && (c[1].files || []).includes('toolbar.js')), 'registro già aperto: iniettati gli script con i nuovi pulsanti');
+check(calls.some(c => c[0] === 'executeScript' && (c[1].files || []).includes('toolbar.js') && c[1].files.includes('sessione.js')), 'registro già aperto: iniettati gli script con i nuovi pulsanti e il conteggio dell\'uso');
 
 // ============ v2.3 ============
 console.log('\n[Registro già aperto, clic sull\'icona, ricarica automatica]');
@@ -481,27 +522,53 @@ check(!calls.some(c => c[0] === 'openOptionsPage') && calls.some(c => c[0] === '
 
 // Mantenimento della sessione guidato dal service worker (anche con la scheda in secondo piano)
 await loadBackground({ codiceScuola: 'SG18328', keepAliveEnabled: true }, [{ id: 41, windowId: 4, active: false, autoDiscardable: true, url: 'https://www.portaleargo.it/voti/?classic' }]);
-await evaluate(`window.__calls = []; window.__executeScriptReply = [{ result: { state: 'ok', pinged: true, renewed: true, expiresIn: 3600, lastRenew: Date.now(), httpStatus: 200 } }];
-  window.__listeners['alarms.onAlarm'][0]({ name: 'argo-keepalive' }); await new Promise(r => setTimeout(r, 200));`);
-calls = await evaluate(`return window.__calls`);
-let ka = (await store()).keepAliveStatus;
-check(calls.some(c => c[0] === 'executeScript' && c[1].world === 'MAIN' && c[1].target.tabId === 41 && JSON.stringify(c[1].args) === '[240000,600]') &&
-  calls.some(c => c[0] === 'tabs.update' && c[1] === 41 && c[2].autoDiscardable === false),
-  'ogni minuto: controllo nella scheda del registro (anche non attiva), che Chrome non deve scaricare');
-check(ka && ka.ok && ka.action === 'renew' && ka.tokenExpiresAt > Date.now() + 3500e3, 'stato salvato: token rinnovato e nuova scadenza', JSON.stringify(ka));
-await evaluate(`window.__calls = []; window.__executeScriptReply = [{ result: { state: 'expired', firstExpired: true, pinged: true, httpStatus: 401, renewTried: true, renewError: 'login_required' } }];
-  window.__listeners['alarms.onAlarm'][0]({ name: 'argo-keepalive' }); await new Promise(r => setTimeout(r, 200));`);
-calls = await evaluate(`return window.__calls`);
-ka = (await store()).keepAliveStatus;
-check(ka.expired && /serve un nuovo accesso/.test(ka.renewError) && calls.some(c => c[0] === 'tabs.sendMessage' && c[1] === 41 && c[2].type === 'argo-session-expired'),
-  'sessione scaduta: stato con il motivo e avviso nella pagina del registro', JSON.stringify(ka));
+const tick = async reply => {
+  await evaluate(`window.__calls = []; window.__executeScriptReply = [{ result: ${reply} }];
+    window.__listeners['alarms.onAlarm'][0]({ name: 'argo-keepalive' }); await new Promise(r => setTimeout(r, 250));`);
+  return { calls: await evaluate(`return window.__calls`), st: await store() };
+};
+const ago = min => `Date.now() - ${Math.round(min * 60000)}`;
+let k = await tick(`{ state: 'ok', loadedAt: ${ago(4)}, lastActivity: ${ago(2)}, tokenExpiresAt: Date.now() + 1800e3 }`);
+check(k.calls.some(c => c[0] === 'executeScript' && c[1].world === 'MAIN' && c[1].target.tabId === 41) &&
+  k.calls.some(c => c[0] === 'tabs.update' && c[1] === 41 && c[2].autoDiscardable === false) && !k.calls.some(c => c[0] === 'tabs.reload'),
+  'ogni minuto: controllo nella scheda del registro (anche non attiva), che Chrome non deve scaricare; usato 2 minuti fa → nessuna ricarica');
+check(k.st.keepAliveStatus.action === 'check' && k.st.keepAliveStatus.ok && k.st.keepAliveStatus.idleMin === 10 &&
+  Math.abs(k.st.keepAliveStatus.nextReloadAt - (Date.now() - 2 * 60000 + 10 * 60000)) < 5000, 'stato: sessione attiva, prossima ricarica 10 minuti dopo l\'ultimo uso', JSON.stringify(k.st.keepAliveStatus));
+k = await tick(`{ state: 'ok', loadedAt: ${ago(30)}, lastActivity: ${ago(11)}, busy: 'è aperta una finestra di DidUP (per esempio la modifica di una lezione)' }`);
+check(!k.calls.some(c => c[0] === 'tabs.reload') && k.st.keepAliveStatus.action === 'wait-busy', '11 minuti senza uso ma con la modifica della lezione aperta: non ricarica');
+k = await tick(`{ state: 'ok', loadedAt: ${ago(30)}, lastActivity: ${ago(11)} }`);
+check(k.calls.some(c => c[0] === 'tabs.reload' && c[1] === 41) && k.st.keepAliveStatus.action === 'reload' && k.st.keepAliveStatus.reason === 'inattività',
+  '11 minuti senza uso: ricarica la pagina del registro (come il tasto Ricarica)', JSON.stringify(k.st.keepAliveStatus));
+k = await tick(`{ state: 'ok', loadedAt: ${ago(0.5)}, lastActivity: ${ago(11)} }`);
+check(!k.calls.some(c => c[0] === 'tabs.reload'), 'dopo la ricarica il conteggio riparte dal caricamento della pagina');
+// sessione scaduta (token): avviso, poi ricarica dopo un minuto di inattività, una volta sola
+const expLoaded = Date.now() - 61 * 60000;   // stessa pagina: l'ora di caricamento non cambia
+k = await tick(`{ state: 'expired', why: 'token', loadedAt: ${expLoaded}, lastActivity: ${ago(0.2)} }`);
+check(!k.calls.some(c => c[0] === 'tabs.reload') && k.calls.some(c => c[0] === 'tabs.sendMessage' && c[1] === 41 && c[2].type === 'argo-session-expired') &&
+  k.st.keepAliveStatus.action === 'wait-idle' && k.st.sessionLog && k.st.sessionLog[0].why === 'token' && k.st.sessionLog[0].sinceLoadMin === 61,
+  'sessione scaduta mentre la usi: avviso nella pagina, scadenza annotata (61 minuti dopo il caricamento), nessuna ricarica', JSON.stringify(k.st.sessionLog));
+k = await tick(`{ state: 'expired', why: 'token', loadedAt: ${expLoaded}, lastActivity: ${ago(1.2)} }`);
+check(k.calls.some(c => c[0] === 'tabs.reload' && c[1] === 41) && k.st.keepAliveStatus.reason === 'scaduta' && !k.calls.some(c => c[0] === 'tabs.sendMessage'),
+  '…dopo un minuto senza uso: ricarica (con «Ricordami» Argo fa rientrare da solo)');
+k = await tick(`{ state: 'expired', why: 'token', loadedAt: ${expLoaded}, lastActivity: ${ago(2.2)} }`);
+check(!k.calls.some(c => c[0] === 'tabs.reload') && k.st.keepAliveStatus.action === 'wait-retry', '…e non riprova a ogni minuto (niente ricariche a ripetizione)');
+// la ricarica ha portato alla pagina di accesso: Argo chiede di nuovo SPID
+await evaluate(`localStorage.setItem('__mockArgoTabs', JSON.stringify([{ id: 41, windowId: 4, url: 'https://www.portaleargo.it/auth/sso/login/?login_challenge=z' }]))`);
+k = await tick(`null`);
+check(k.st.keepAliveStatus.action === 'login' && k.st.keepAliveStatus.loginRequired, 'dopo la ricarica Argo ha chiesto di nuovo l\'accesso: indicato nello stato', JSON.stringify(k.st.keepAliveStatus));
+// il server chiude la sessione prima della ricarica: la soglia si accorcia
+await loadBackground({ codiceScuola: 'SG18328', keepAliveEnabled: true }, [{ id: 42, windowId: 4, url: 'https://www.portaleargo.it/voti/?classic' }]);
+k = await tick(`{ state: 'expired', why: 'msg', loadedAt: ${ago(8)}, lastActivity: ${ago(7)} }`);
+check(k.st.keepAliveIdleMin === 4 && k.calls.some(c => c[0] === 'tabs.reload' && c[1] === 42), 'il server ha chiuso la sessione dopo 7 minuti senza uso: d\'ora in poi ricarica dopo 4 minuti', JSON.stringify({ idle: k.st.keepAliveIdleMin }));
+k = await tick(`{ state: 'ok', loadedAt: ${ago(5)}, lastActivity: ${ago(4.5)} }`);
+check(k.st.keepAliveStatus.idleMin === 4, '…soglia usata anche nei controlli successivi');
 await setStore({ codiceScuola: 'SG18328', keepAliveEnabled: false }, `localStorage.setItem('__mockArgoTabs', JSON.stringify([{ id: 41, autoDiscardable: false, url: 'https://www.portaleargo.it/voti/?classic' }]));`);
 await navigate(`${BASE}/__blank`, 300);
 await evaluate(`window.importScripts = () => {};
   for (const f of ['mock-chrome.js', 'settings.js', 'background.js']) { const sc = document.createElement('script'); sc.src = '/ext/' + f; document.body.append(sc); await new Promise(r => sc.onload = r); }
   window.__calls = []; window.__listeners['alarms.onAlarm'][0]({ name: 'argo-keepalive' }); await new Promise(r => setTimeout(r, 200));`);
 calls = await evaluate(`return window.__calls`);
-check(!calls.some(c => c[0] === 'executeScript') && calls.some(c => c[0] === 'tabs.update' && c[2].autoDiscardable === true), 'mantenimento disattivato: nessun controllo, la scheda torna scaricabile');
+check(!calls.some(c => c[0] === 'executeScript' || c[0] === 'tabs.reload') && calls.some(c => c[0] === 'tabs.update' && c[2].autoDiscardable === true), 'mantenimento disattivato: nessun controllo né ricarica, la scheda torna scaricabile');
 
 // SW riavviato dopo la ricarica automatica: completa l'azione richiesta, una volta sola
 await loadBackground({ codiceScuola: 'SG18328', selfReload: { from: '2.1', to: '2.3', at: Date.now(), after: { action: 'go-registro' } } }, []);

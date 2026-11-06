@@ -84,7 +84,9 @@ try {
   await send('Page.enable');
   await send('Runtime.enable');
   // Impostazioni del finto chrome.storage: il registro finto è servito da questo server.
-  const STORE = { schemaVersion: 1, argoDashboardPattern: `${BASE}/voti/`, argoLoginUrl: `${BASE}/auth/sso/login`, basePortalUrl: `${BASE}/voti/` };
+  // (guide della prima volta spente: hanno un test a parte più sotto)
+  const STORE = { schemaVersion: 1, argoDashboardPattern: `${BASE}/voti/`, argoLoginUrl: `${BASE}/auth/sso/login`, basePortalUrl: `${BASE}/voti/`,
+    guidaPulsanti: false, guidaArgomenti: false };
   await navigate(`${BASE}/voti/app?n=0`, 300);
   await evaluate(`localStorage.setItem('__mockStore', ${JSON.stringify(JSON.stringify(STORE))})`);
 
@@ -261,14 +263,17 @@ try {
   const tb = js => evaluate(`const host = document.querySelector('[data-argo-assistant="toolbar"]'); const root = host && host.shadowRoot;
     const run = document.querySelector('[data-argo-assistant="run"]'); const pr = run && run.shadowRoot; ${js}`);
   await navigate(oneLesson(slotNow), 1200);
-  let t = await tb(`const r = host.getBoundingClientRect(); const help = document.querySelector('#btnNews').getBoundingClientRect();
-    const hdr = document.querySelector('.header').getBoundingClientRect();
+  let t = await tb(`const r = host.getBoundingClientRect(); const help = document.querySelector('#btnNews img').getBoundingClientRect();
+    const hdr = document.querySelector('.header').getBoundingClientRect(); const b0 = root.querySelector('button.b');
     return { n: root.querySelectorAll('button.b').length, where: host.dataset.where, theme: host.dataset.theme, right: r.right, helpLeft: help.left,
-      midY: r.top + r.height / 2, hdrMid: hdr.top + hdr.height / 2, labels: [...root.querySelectorAll('button.b')].map(b => b.getAttribute('aria-label')),
-      tips: [...root.querySelectorAll('.tip')].map(x => x.textContent) };`);
+      midY: r.top + r.height / 2, helpMid: help.top + help.height / 2, hdrMid: hdr.top + hdr.height / 2, size: b0.getBoundingClientRect().height,
+      bg: getComputedStyle(b0).backgroundColor, border: getComputedStyle(b0).borderTopColor,
+      labels: [...root.querySelectorAll('button.b')].map(b => b.getAttribute('aria-label')), tips: [...root.querySelectorAll('.tip')].map(x => x.textContent) };`);
   check(t.n === 2 && t.labels.join('|') === 'Firma ora (Argo DidUP Booster)|Appello (Argo DidUP Booster)', 'due pulsanti rotondi «Firma ora» e «Appello» nella pagina', JSON.stringify(t));
-  check(t.where === 'right' && t.right <= t.helpLeft - 10 && t.right > t.helpLeft - 40 && Math.abs(t.midY - t.hdrMid) < 2, 'predefinito: a destra, accanto al pulsante di aiuto, centrati nella barra', JSON.stringify(t));
-  check(t.theme === 'vivid' && /Firma ora: la tua lezione/.test(t.tips[0]), 'stile predefinito «Evidenziato»; la scritta compare passando sopra', JSON.stringify(t));
+  check(t.where === 'right' && t.right <= t.helpLeft - 10 && t.right > t.helpLeft - 20 && Math.abs(t.midY - t.helpMid) < 1.5 && Math.abs(t.helpMid - t.hdrMid) > 5 && t.size === 34,
+    'predefinito: a destra, accanto all\'icona di aiuto e centrati su di lei (non sulla barra), stessa altezza (34 px)', JSON.stringify(t));
+  check(t.theme === 'argo' && t.bg === 'rgb(255, 255, 255)' && t.border === 'rgb(255, 150, 37)' && /Firma ora: la tua lezione/.test(t.tips[0]),
+    'stile predefinito «Simil Argo» (bianco con il bordo arancione, come l\'aiuto); la scritta compare passando sopra', JSON.stringify(t));
   await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: Math.round(t.right - 60), y: Math.round(t.midY) });
   await sleep(250);
   t = await tb(`return getComputedStyle(root.querySelectorAll('.tip')[0]).opacity`);
@@ -276,14 +281,26 @@ try {
   await shot('26-pulsanti-barra');
   await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 500 });
 
-  await evaluate(`await chrome.storage.local.set({ buttonsPosition: 'left', buttonsTheme: 'argo' }); await new Promise(r => setTimeout(r, 300));`);
+  await evaluate(`await chrome.storage.local.set({ buttonsPosition: 'left', buttonsTheme: 'vivid' }); await new Promise(r => setTimeout(r, 300));`);
   t = await tb(`const r = host.getBoundingClientRect(); const range = document.createRange(); range.selectNodeContents(document.getElementById('intestazioneId'));
     return { where: host.dataset.where, theme: host.dataset.theme, left: r.left, textRight: range.getBoundingClientRect().right };`);
-  check(t.where === 'left' && t.theme === 'argo' && t.left >= t.textRight + 10 && t.left < t.textRight + 40, 'a sinistra (dopo il nome della scuola) e stile «Simil Argo» appena cambiati nelle impostazioni', JSON.stringify(t));
+  check(t.where === 'left' && t.theme === 'vivid' && t.left >= t.textRight + 10 && t.left < t.textRight + 40, 'a sinistra (dopo il nome della scuola) e stile «Evidenziato» appena cambiati nelle impostazioni', JSON.stringify(t));
   await evaluate(`await chrome.storage.local.set({ buttonsPosition: 'center' }); await new Promise(r => setTimeout(r, 300));`);
   t = await tb(`const r = host.getBoundingClientRect(); return Math.abs((r.left + r.right) / 2 - innerWidth / 2);`);
   check(t < 2, 'al centro della barra', t);
-  await evaluate(`await chrome.storage.local.set({ buttonsPosition: 'right', buttonsTheme: 'vivid' }); await new Promise(r => setTimeout(r, 200));`);
+  await evaluate(`await chrome.storage.local.set({ buttonsPosition: 'right', buttonsTheme: 'argo' }); await new Promise(r => setTimeout(r, 200));`);
+
+  // Funzioni tolte dalle impostazioni
+  await evaluate(`await chrome.storage.local.set({ showAppello: false }); await new Promise(r => setTimeout(r, 800));`);
+  t = await tb(`const help = document.querySelector('#btnNews img').getBoundingClientRect();
+    return { ids: [...root.querySelectorAll('button.b')].map(b => b.dataset.action), right: host.getBoundingClientRect().right, helpLeft: help.left };`);
+  check(t.ids.join() === 'firma' && t.right <= t.helpLeft - 10 && t.right > t.helpLeft - 20, 'Appello tolto nelle impostazioni: resta solo «Firma ora», sempre accanto all\'aiuto', JSON.stringify(t));
+  await evaluate(`await chrome.storage.local.set({ showFirma: false }); await new Promise(r => setTimeout(r, 800));`);
+  t = await evaluate(`const h = document.querySelector('[data-argo-assistant="toolbar"]'); return { display: h ? h.style.display : 'assente', n: h ? h.shadowRoot.querySelectorAll('button.b').length : 0 };`);
+  check(t.display === 'none' && t.n === 0, 'tolti entrambi: nessun pulsante nella barra', JSON.stringify(t));
+  await evaluate(`await chrome.storage.local.set({ showFirma: true, showAppello: true }); await new Promise(r => setTimeout(r, 800));`);
+  t = await tb(`return [...root.querySelectorAll('button.b')].map(b => b.dataset.action).join() + '|' + host.style.display;`);
+  check(t === 'firma,appello|', '…e rimessi', t);
 
   await tb(`root.querySelector('[data-action="firma"]').click();`);
   t = await tb(`for (let i = 0; i < 80; i++) { await new Promise(r => setTimeout(r, 100)); if (pr && pr.querySelector('.result') && !pr.querySelector('.result').hidden) break; }
@@ -292,6 +309,32 @@ try {
   check(t.signed === '3A#2' && t.cls.includes('done') && /Firmata la 2ª ora · 3A/.test(t.result) && t.steps.some(s => /Cliccato «Home»/.test(s)),
     'clic su «Firma ora»: pannello sotto i pulsanti con i passi e l\'esito', JSON.stringify(t));
   await shot('27-pannello-firma');
+  // clic dell'utente dentro il pannello: resta aperto; fuori dal pannello: si chiude
+  const mouseClick = async (x, y) => {
+    for (const type of ['mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 });
+    await sleep(200);
+  };
+  let pt = await tb(`const r = pr.querySelector('.p').getBoundingClientRect(); return { x: Math.round(r.left + 40), y: Math.round(r.top + 60) };`);
+  await mouseClick(pt.x, pt.y);
+  const panelShown = `pr.querySelector('.p').getBoundingClientRect().width > 0`;
+  check(await tb(`return ${panelShown}`), 'clic dentro il pannello: resta aperto');
+  await mouseClick(300, 600);
+  check(await tb(`return !(${panelShown})`), 'clic fuori dal pannello: si chiude (non si vede più)');
+  // la × chiude davvero il pannello (regressione 1.2.0: l'attributo hidden non bastava)
+  await tb(`root.querySelector('[data-action="firma"]').click();`);
+  await tb(`for (let i = 0; i < 80; i++) { await new Promise(r => setTimeout(r, 100)); if (!pr.querySelector('.result').hidden) break; }`);
+  pt = await tb(`const r = pr.querySelector('.x').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };`);
+  await mouseClick(pt.x, pt.y);
+  check(await tb(`return !(${panelShown})`), 'clic sulla ×: il pannello si chiude (non si vede più)');
+  // il clic su un pulsante della barra non conta come «fuori»
+  await tb(`root.querySelector('[data-action="firma"]').click();`);
+  await sleep(300);
+  await tb(`for (let i = 0; i < 80; i++) { await new Promise(r => setTimeout(r, 100)); if (!pr.querySelector('.result').hidden) break; }`);
+  pt = await tb(`const r = root.querySelector('[data-action="appello"]').getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };`);
+  await mouseClick(pt.x, pt.y);
+  t = await tb(`for (let i = 0; i < 80; i++) { await new Promise(r => setTimeout(r, 100)); if (!pr.querySelector('.result').hidden) break; }
+    return { shown: ${panelShown}, title: pr.querySelector('.title').textContent };`);
+  check(t.shown && t.title === 'Appello', 'con il pannello aperto, il clic su un altro pulsante della barra non lo chiude: parte quell\'azione', JSON.stringify(t));
 
   await navigate(oneLesson(slotOther), 1200);
   await tb(`root.querySelector('[data-action="firma"]').click();`);
@@ -318,6 +361,13 @@ try {
     return { signed: window.__didup.signClicks.length, result: p2.querySelector('.result').textContent };`);
   check(t.signed === 0 && /Non ho firmato nulla/.test(t.result), 'pannello chiuso durante la domanda: vale «no», non firma', JSON.stringify(t));
 
+  await navigate(oneLesson(slotOther), 1200);
+  await tb(`root.querySelector('[data-action="firma"]').click();`);
+  await tb(`for (let i = 0; i < 80; i++) { await new Promise(r => setTimeout(r, 100)); const p2 = document.querySelector('[data-argo-assistant="run"]')?.shadowRoot; if (p2 && !p2.querySelector('.askbox').hidden) break; }`);
+  await mouseClick(300, 600);
+  t = await tb(`await new Promise(r => setTimeout(r, 800)); return { signed: window.__didup.signClicks.length, shown: ${panelShown}, result: pr.querySelector('.result').textContent };`);
+  check(t.signed === 0 && !t.shown && /Non ho firmato nulla/.test(t.result), 'clic fuori durante la domanda: pannello chiuso, vale «no»', JSON.stringify(t));
+
   await navigate(`${BASE}/voti/app?n=${++navCount}`, 1200);
   await tb(`root.querySelector('[data-action="appello"]').click();`);
   t = await tb(`for (let i = 0; i < 80; i++) { await new Promise(r => setTimeout(r, 100)); if (pr && !pr.querySelector('.result').hidden) break; }
@@ -326,13 +376,51 @@ try {
   check(t.cls.includes('failed') && t.last === 'error' && /Appello/.test(t.text), 'errore in rosso nel pannello (Appello su un\'ora non firmata)', JSON.stringify(t));
   await shot('29-pannello-errore');
 
-  t = await evaluate(`window.__listeners['runtime.onMessage'].forEach(fn => fn({ type: 'argo-session-expired', text: 'Il server di Argo ha chiuso la sessione.' }, {}, () => {}));
+  t = await evaluate(`window.__listeners['runtime.onMessage'].forEach(fn => fn({ type: 'argo-session-expired', text: 'Ricarico il registro appena smetti di usarlo.' }, {}, () => {}));
     await new Promise(r => setTimeout(r, 100));
     const h = document.querySelector('[data-argo-assistant="toast"]');
-    const btn = h && [...h.shadowRoot.querySelectorAll('.actions button')].find(b => b.textContent === 'Accedi di nuovo');
-    window.__calls = []; if (btn) btn.click();
-    return { text: h ? h.shadowRoot.querySelector('.t').innerText : '', sent: window.__calls.filter(c => c[0] === 'sendMessage').map(c => c[1].type) };`);
-  check(/Sessione di Argo scaduta/.test(t.text) && t.sent.join() === 'relogin-tab', 'sessione scaduta: avviso nella pagina con «Accedi di nuovo» (rifà l\'accesso in quella scheda)', JSON.stringify(t));
+    return { text: h ? h.shadowRoot.querySelector('.t').innerText : '', buttons: h ? [...h.shadowRoot.querySelectorAll('.actions button')].map(b => b.textContent) : [] };`);
+  check(/Sessione di Argo scaduta/.test(t.text) && /Ricarico il registro/.test(t.text) && t.buttons.join() === 'Ricarica ora,Più tardi', 'sessione scaduta: avviso nella pagina con «Ricarica ora»', JSON.stringify(t));
+  navCount++;
+  const loaded = new Promise(r => { loadWaiters.push(r); setTimeout(r, 5000); });
+  await evaluate(`[...document.querySelector('[data-argo-assistant="toast"]').shadowRoot.querySelectorAll('.actions button')].find(b => b.textContent === 'Ricarica ora').click(); window.__beforeReload = 1;`);
+  await loaded;
+  await sleep(500);
+  check(await evaluate(`return window.__beforeReload === undefined && !!window.__didup`), '«Ricarica ora» ricarica la pagina del registro');
+
+  // ------------------------------------------------------------------
+  console.log('\n[Guida della prima volta]');
+  await evaluate(`await chrome.storage.local.set({ guidaPulsanti: true });`);
+  await navigate(`${BASE}/voti/app?n=${++navCount}`, 600);
+  t = await evaluate(`for (let i = 0; i < 60 && !document.querySelector('[data-argo-assistant="guide"]'); i++) await new Promise(r => setTimeout(r, 100));
+    const g = document.querySelector('[data-argo-assistant="guide"]'); if (!g) return null;
+    const gr = g.shadowRoot; await new Promise(r => setTimeout(r, 400));
+    const hole = gr.querySelector('.hole').getBoundingClientRect(), bar = document.querySelector('[data-argo-assistant="toolbar"]').getBoundingClientRect();
+    return { title: gr.querySelector('h3').textContent, text: gr.querySelector('.text').textContent, count: gr.querySelector('.count').textContent,
+      covers: hole.left <= bar.left && hole.right >= bar.right && hole.top <= bar.top && hole.bottom >= bar.bottom,
+      shadow: getComputedStyle(gr.querySelector('.hole')).boxShadow, stored: (await chrome.storage.local.get('guidaPulsanti')).guidaPulsanti };`);
+  check(t && /Argo DidUP Booster/.test(t.text) && t.count === '1 di 4' && t.covers && /rgba\(15, 23, 42, 0\.68\)/.test(t.shadow) && t.stored === false,
+    'prima apertura del registro: guida con lo sfondo scuro sui pulsanti, dice che li ha aggiunti l\'estensione; poi non si ripresenta', JSON.stringify(t));
+  await shot('30-guida-pulsanti');
+  // i clic sulla pagina sono bloccati mentre la guida è aperta
+  await mouseClick(600, 400);
+  check(await evaluate(`return !!document.querySelector('[data-argo-assistant="guide"]')`), 'clic sulla pagina con la guida aperta: la guida resta (niente clic accidentali su DidUP)');
+  t = await evaluate(`const gr = document.querySelector('[data-argo-assistant="guide"]').shadowRoot; const titles = [];
+    for (let i = 0; i < 6 && document.querySelector('[data-argo-assistant="guide"]'); i++) { titles.push(gr.querySelector('h3').textContent); gr.querySelector('.next').click(); await new Promise(r => setTimeout(r, 100)); }
+    return { titles, open: !!document.querySelector('[data-argo-assistant="guide"]') };`);
+  check(t.titles.join('|') === 'Nuovi pulsanti nel registro|Firma ora|Appello|Puoi cambiarli quando vuoi' && !t.open, 'quattro passi (pulsanti, Firma ora, Appello, impostazioni) e poi si chiude', JSON.stringify(t));
+  await navigate(`${BASE}/voti/app?n=${++navCount}`, 3500);
+  check(await evaluate(`return !document.querySelector('[data-argo-assistant="guide"]')`), 'alla riapertura del registro la guida non ricompare');
+  // riattivata dalle impostazioni, con solo «Firma ora»: Esc la chiude
+  await evaluate(`await chrome.storage.local.set({ guidaPulsanti: true, showAppello: false });`);
+  t = await evaluate(`for (let i = 0; i < 60 && !document.querySelector('[data-argo-assistant="guide"]'); i++) await new Promise(r => setTimeout(r, 100));
+    const g = document.querySelector('[data-argo-assistant="guide"]'); return g ? g.shadowRoot.querySelector('.count').textContent : null;`);
+  check(t === '1 di 3', 'riattivata dalle impostazioni (con solo «Firma ora»): ricompare subito, senza il passo di Appello', t);
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await sleep(200);
+  check(await evaluate(`return !document.querySelector('[data-argo-assistant="guide"]')`), 'Esc chiude la guida');
+  await evaluate(`await chrome.storage.local.set({ showAppello: true });`);
 
   console.log('\nErrori JS in console:', consoleErrors.length ? consoleErrors : 'nessuno');
   if (consoleErrors.length) failures++;

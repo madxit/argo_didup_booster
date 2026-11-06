@@ -15,7 +15,6 @@ const CHROME = CHROME_BIN;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 // ---------------- server locale ----------------
-const stats = { pageLoads: 0, pings: 0, expire: false };
 const types = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.png': 'image/png', '.json': 'application/json' };
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
@@ -24,18 +23,6 @@ const server = http.createServer((req, res) => {
     if (!fs.existsSync(file)) { res.writeHead(404); return res.end(); }
     res.writeHead(200, { 'content-type': types[path.extname(file)] || 'application/octet-stream' });
     return res.end(fs.readFileSync(file));
-  }
-  if (url.pathname === '/voti/') {
-    const isFetch = req.headers['sec-fetch-dest'] === 'empty';
-    if (isFetch) stats.pings++; else stats.pageLoads++;
-    if (stats.expire) { res.writeHead(302, { location: '/auth/sso/login' }); return res.end(); }
-    res.writeHead(200, { 'content-type': 'text/html' });
-    return res.end(`<!DOCTYPE html><html><body><h1>Registro finto</h1><textarea id="ta"></textarea>
-      <script src="/ext/mock-chrome.js"></script><script src="/ext/settings.js"></script><script src="/ext/keepalive.js"></script></body></html>`);
-  }
-  if (url.pathname === '/auth/sso/login') {
-    res.writeHead(200, { 'content-type': 'text/html' });
-    return res.end('<!DOCTYPE html><html><body>login</body></html>');
   }
   res.writeHead(404); res.end();
 });
@@ -122,30 +109,79 @@ await sleep(500);
 s = await store();
 check(s.codiceScuola === 'SG12345' && await evaluate(`return document.getElementById('missing-code-banner').hidden`), 'codice valido salvato, banner nascosto');
 
-// Sessione: un solo metodo, si può solo attivare o disattivare
+// Sessione: un solo metodo (ricarica dopo un periodo senza uso), si può solo attivare o disattivare
 check(await evaluate(`return !document.getElementById('keepAliveInterval') && !document.querySelector('input[name=keepAliveMethod]')`), 'sessione: nessuna scelta di intervallo o metodo');
+check(await evaluate(`return document.querySelector('#sec-sessione .switch-row').textContent.trim() === 'Mantieni attiva la sessione dopo l\\'accesso'`), 'testo dell\'interruttore: «Mantieni attiva la sessione dopo l\'accesso»');
 await evaluate(`document.getElementById('keepAliveEnabled').click();`);
 await sleep(200);
 check((await store()).keepAliveEnabled === false && /disattivato/.test(await evaluate(`return document.getElementById('keepalive-status').textContent`)), 'mantenimento disattivato: salvato e indicato');
 await evaluate(`document.getElementById('keepAliveEnabled').click();`);
 await sleep(200);
-await evaluate(`await chrome.storage.local.set({ keepAliveStatus: { time: Date.now(), ok: true, action: 'renew', lastRenewAt: Date.now(), tokenExpiresAt: Date.now() + 3540e3 } });`);
-await sleep(100);
+await evaluate(`await chrome.storage.local.set({ keepAliveStatus: { time: Date.now(), ok: true, action: 'check', idleMin: 10, nextReloadAt: Date.now() + 7 * 60e3, tokenExpiresAt: Date.now() + 40 * 60e3 } });`);
+await sleep(150);
 let ks = await evaluate(`return document.getElementById('keepalive-status').textContent`);
-check(/Token di accesso rinnovato/.test(ks) && /vale ancora circa 59 min/.test(ks), 'stato: rinnovo del token e durata residua', ks);
-await evaluate(`await chrome.storage.local.set({ keepAliveStatus: { time: Date.now(), ok: false, expired: true, renewError: 'Argo non permette di rinnovare l\\'accesso senza di te: serve un nuovo accesso con SPID o CIE' } });`);
-await sleep(100);
+check(/Sessione attiva/.test(ks) && /prossima ricarica verso le/.test(ks) && /token di accesso di Argo valido fino alle/.test(ks), 'stato: sessione attiva, prossima ricarica e scadenza del token', ks);
+await evaluate(`await chrome.storage.local.set({ keepAliveStatus: { time: Date.now(), ok: true, action: 'reload', reason: 'inattività', idleMin: 10, lastReloadAt: Date.now() } });`);
+await sleep(150);
 ks = await evaluate(`return document.getElementById('keepalive-status').textContent`);
-check(/Sessione scaduta/.test(ks) && /serve un nuovo accesso/.test(ks), 'stato: sessione scaduta con il motivo', ks);
+check(/Registro ricaricato alle .* dopo 10 minuti senza uso/.test(ks), 'stato: ricarica per inattività', ks);
+await evaluate(`await chrome.storage.local.set({ keepAliveStatus: { time: Date.now(), ok: false, expired: true, why: 'box', action: 'wait-busy', busy: 'è aperta una finestra di DidUP (per esempio la modifica di una lezione)' },
+  sessionLog: [{ at: Date.now(), why: 'box', sinceLoadMin: 59, idleMin: 3 }], keepAliveIdleMin: 6 });`);
+await sleep(150);
+ks = await evaluate(`return document.getElementById('keepalive-status').textContent`);
+check(/Sessione scaduta/.test(ks) && /modifica di una lezione/.test(ks) && /Scadenze osservate/.test(ks) && /59 minuti dopo il caricamento/.test(ks) && /Ricordami/.test(ks) &&
+  await evaluate(`return document.getElementById('idle-min').textContent`) === '6', 'stato: scaduta ma finestra aperta, scadenze osservate con la causa, soglia accorciata', ks);
+await evaluate(`await chrome.storage.local.set({ keepAliveStatus: { time: Date.now(), ok: false, expired: true, action: 'login', loginRequired: true, lastReloadAt: Date.now() }, keepAliveIdleMin: 10 });`);
+await sleep(150);
+ks = await evaluate(`return document.getElementById('keepalive-status').textContent`);
+check(/ha chiesto di nuovo l'accesso/.test(ks), 'stato: dopo la ricarica Argo ha chiesto un nuovo accesso', ks);
+await shot('03a-sessione', '#sec-sessione');
 
-// Pulsanti nel registro
+// «Ricordami» (predefinito: attivo)
+check(await evaluate(`return document.getElementById('ricordami').checked`), '«Ricordami» attivo in modo predefinito');
+await evaluate(`document.getElementById('ricordami').click();`);
+await sleep(150);
+check((await store()).ricordami === false, '«Ricordami» disattivato e salvato');
+await evaluate(`document.getElementById('ricordami').click();`);
+await sleep(150);
+
+// Link al repository
+const repo = await evaluate(`return [document.getElementById('repo-link').href, document.getElementById('repo-link-foot').href, document.getElementById('repo-link').target]`);
+check(repo[0] === 'https://github.com/madxit/argo_didup_booster' && repo[1] === repo[0] && repo[2] === '_blank', 'link al repository GitHub in cima e in fondo', JSON.stringify(repo));
+
+// Funzioni nel registro e guide
+let fz = await evaluate(`return ['showFirma', 'showAppello', 'showArgomenti', 'guidaPulsanti', 'guidaArgomenti'].map(id => document.getElementById(id).checked)`);
+check(fz.every(Boolean), 'funzioni tutte attive e guide da mostrare in modo predefinito', JSON.stringify(fz));
 const pv = js => evaluate(`const b = document.getElementById('pv-buttons'); const root = b.shadowRoot; ${js}`);
-let pvs = await pv(`return { n: root.querySelectorAll('button.b').length, themes: document.querySelectorAll('input[name=buttonsTheme]').length,
+const visibleInPreview = () => pv(`return { buttons: [...root.querySelectorAll('button.b')].filter(x => getComputedStyle(x).display !== 'none').map(x => x.dataset.action),
+  pill: getComputedStyle(document.getElementById('pv-topics').shadowRoot.querySelector('.pill')).display !== 'none' };`);
+await evaluate(`document.getElementById('showAppello').click(); document.getElementById('showArgomenti').click(); document.getElementById('guidaPulsanti').click();`);
+await sleep(200);
+s = await store();
+let vis = await visibleInPreview();
+check(s.showAppello === false && s.showArgomenti === false && s.showFirma !== false && s.guidaPulsanti === false && vis.buttons.join() === 'firma' && !vis.pill,
+  'Appello e Argomenti tolti: salvati e spariti dall\'anteprima; guida dei pulsanti spenta', JSON.stringify(vis));
+await shot('03d-funzioni', '#sec-funzioni');
+await evaluate(`document.getElementById('showAppello').click(); document.getElementById('showArgomenti').click(); document.getElementById('guidaPulsanti').click();`);
+await sleep(200);
+vis = await visibleInPreview();
+check(vis.buttons.join() === 'firma,appello' && vis.pill && (await store()).guidaPulsanti === true, '…e rimessi', JSON.stringify(vis));
+// la guida mostrata nel registro spegne la casella anche con le impostazioni aperte
+await evaluate(`await chrome.storage.local.set({ guidaArgomenti: false });`);
+await sleep(150);
+check(await evaluate(`return document.getElementById('guidaArgomenti').checked === false`), 'guida mostrata nel registro: la casella si spegne da sola anche qui');
+await evaluate(`await chrome.storage.local.set({ guidaArgomenti: true });`);
+
+// Aspetto dei pulsanti: «Simil Argo» predefinito e primo dell'elenco
+let pvs = await pv(`return { n: root.querySelectorAll('button.b').length, themes: [...document.querySelectorAll('input[name=buttonsTheme]')].map(i => i.value),
+  firstLabel: document.querySelector('.theme-option strong').textContent,
   checked: document.querySelector('input[name=buttonsTheme]:checked').value, pos: document.querySelector('input[name=buttonsPosition]:checked').value,
-  right: b.style.right, bg: getComputedStyle(root.querySelector('.b')).backgroundColor, pill: !!document.getElementById('pv-topics').shadowRoot.querySelector('.pill') };`);
-check(pvs.n === 2 && pvs.themes === 6 && pvs.checked === 'vivid' && pvs.pos === 'right' && pvs.right && pvs.pill && pvs.bg === 'rgb(124, 58, 237)',
-  'pulsanti: 6 stili, predefiniti «Evidenziato» a destra, anteprima con Firma, Appello e «Argomenti e compiti»', JSON.stringify(pvs));
-await shot('03b-pulsanti-evidenziato', '#sec-pulsanti');
+  right: b.style.right, bg: getComputedStyle(root.querySelector('.b')).backgroundColor, border: getComputedStyle(root.querySelector('.b')).borderTopColor,
+  pill: !!document.getElementById('pv-topics').shadowRoot.querySelector('.pill') };`);
+check(pvs.n === 2 && pvs.themes.length === 6 && pvs.themes[0] === 'argo' && pvs.firstLabel === 'Simil Argo (predefinito)' && pvs.checked === 'argo' && pvs.pos === 'right' &&
+  pvs.right && pvs.pill && pvs.bg === 'rgb(255, 255, 255)' && pvs.border === 'rgb(255, 150, 37)',
+  'pulsanti: 6 stili, «Simil Argo» predefinito e in cima, a destra, anteprima con Firma, Appello e «Argomenti e compiti»', JSON.stringify(pvs));
+await shot('03b-pulsanti-simil-argo', '#sec-pulsanti');
 await evaluate(`document.querySelector('input[name=buttonsTheme][value=contrast]').click(); document.querySelector('input[name=buttonsPosition][value=center]').click();`);
 await sleep(200);
 s = await store();
@@ -153,10 +189,10 @@ pvs = await pv(`return { left: b.style.left, bg: getComputedStyle(root.querySele
 check(s.buttonsTheme === 'contrast' && s.buttonsPosition === 'center' && pvs.left === '50%' && pvs.bg === 'rgb(0, 0, 0)' && pvs.fg === 'rgb(255, 235, 59)',
   'scelta salvata e anteprima aggiornata (alto contrasto, al centro)', JSON.stringify(pvs));
 await shot('03c-pulsanti-contrasto', '#sec-pulsanti');
-await evaluate(`document.querySelector('input[name=buttonsTheme][value=vivid]').click(); document.querySelector('input[name=buttonsPosition][value=right]').click();`);
+await evaluate(`document.querySelector('input[name=buttonsTheme][value=argo]').click(); document.querySelector('input[name=buttonsPosition][value=right]').click();`);
 await sleep(200);
 check(sanitizeOk(await evaluate(`return sanitizeSettings({ buttonsTheme: 'rosa', buttonsPosition: 'sotto' })`)), 'import: stile o posizione sconosciuti → valori predefiniti con avviso');
-function sanitizeOk(r) { return r.settings.buttonsTheme === 'vivid' && r.settings.buttonsPosition === 'right' && r.warnings.length === 2; }
+function sanitizeOk(r) { return r.settings.buttonsTheme === 'argo' && r.settings.buttonsPosition === 'right' && r.warnings.length === 2; }
 
 // Discipline
 const addDisc = nome => evaluate(`document.getElementById('new-disciplina').value = ${JSON.stringify(nome)}; document.getElementById('add-disciplina-form').requestSubmit();`);
