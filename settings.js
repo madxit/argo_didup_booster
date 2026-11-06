@@ -1,13 +1,16 @@
 // =====================================================================
-// settings.js — modulo condiviso (popup, pagina impostazioni,
+// settings.js — modulo condiviso (pagina impostazioni,
 // content script e service worker).
 // Tutte le impostazioni sono salvate in chrome.storage.local.
 // =====================================================================
 
 var SETTINGS_SCHEMA_VERSION = 1;
 
-var KEEPALIVE_MIN_SEC = 30;
-var KEEPALIVE_MAX_SEC = 3600;
+// Mantenimento della sessione (unico metodo, guidato dal service worker,
+// vedi background.js): ogni minuto controlla le schede del registro, anche
+// quelle in secondo piano.
+var KEEPALIVE_PING_EVERY_SEC = 240;    // richiesta autenticata al server ogni 4 minuti
+var KEEPALIVE_RENEW_BEFORE_SEC = 600;  // rinnovo del token di accesso 10 minuti prima che scada
 
 // Provider SPID presenti sulla pagina del Ministero (eid.istruzione.it):
 // l'id è il segmento del link .../sp/idps/spid/<id>/authenticate/
@@ -33,8 +36,8 @@ var DEFAULT_SETTINGS = {
   autoLogin: true,                 // avvia l'accesso appena si apre la pagina di login
   docenteNome: '',
   keepAliveEnabled: true,
-  keepAliveInterval: 240,          // secondi
-  keepAliveMethod: 'ping',         // 'ping' | 'reload'
+  buttonsPosition: 'right',        // pulsanti nella barra di DidUP: 'right' | 'left' | 'center'
+  buttonsTheme: 'vivid',           // id di BUTTON_THEMES
   discipline: [],                  // [{ nome, argomenti: string[], compiti: string[] }]
   argoLoginUrl: 'https://www.portaleargo.it/auth/sso/login',
   argoDashboardPattern: 'https://www.portaleargo.it/voti/?classic',
@@ -53,12 +56,6 @@ function normalizeCodiceScuola(value) {
 
 function isValidCodiceScuola(code) {
   return /^[A-Z0-9]{3,16}$/.test(code);
-}
-
-function clampInterval(value) {
-  const n = Math.round(Number(value));
-  if (!Number.isFinite(n)) return DEFAULT_SETTINGS.keepAliveInterval;
-  return Math.min(KEEPALIVE_MAX_SEC, Math.max(KEEPALIVE_MIN_SEC, n));
 }
 
 function cleanText(value) {
@@ -151,9 +148,13 @@ function sanitizeSettings(raw) {
   if (src.autoLogin !== undefined) s.autoLogin = Boolean(src.autoLogin);
   if (src.docenteNome !== undefined) s.docenteNome = cleanText(src.docenteNome);
   if (src.keepAliveEnabled !== undefined) s.keepAliveEnabled = Boolean(src.keepAliveEnabled);
-  if (src.keepAliveInterval !== undefined) s.keepAliveInterval = clampInterval(src.keepAliveInterval);
-  if (src.keepAliveMethod !== undefined) {
-    s.keepAliveMethod = src.keepAliveMethod === 'reload' ? 'reload' : 'ping';
+  if (src.buttonsPosition !== undefined) {
+    if (BUTTON_POSITIONS.some(p => p.id === src.buttonsPosition)) s.buttonsPosition = src.buttonsPosition;
+    else warnings.push(`Posizione dei pulsanti "${src.buttonsPosition}" sconosciuta: uso "${DEFAULT_SETTINGS.buttonsPosition}".`);
+  }
+  if (src.buttonsTheme !== undefined) {
+    if (BUTTON_THEMES.some(t => t.id === src.buttonsTheme)) s.buttonsTheme = src.buttonsTheme;
+    else warnings.push(`Stile dei pulsanti "${src.buttonsTheme}" sconosciuto: uso quello predefinito.`);
   }
   s.discipline = sanitizeDiscipline(src.discipline, warnings);
 
@@ -163,6 +164,111 @@ function sanitizeSettings(raw) {
     else warnings.push(`URL "${key}" non valido: uso il valore predefinito.`);
   }
   return { settings: s, warnings };
+}
+
+// ---------------------------------------------------------------------
+// Aspetto dei pulsanti aggiunti al registro (Firma, Appello, Argomenti e
+// compiti). Ogni stile è un insieme di variabili CSS usate da toolbar.js,
+// argomenti.js e dall'anteprima nelle impostazioni.
+// ---------------------------------------------------------------------
+
+var BUTTON_POSITIONS = [
+  { id: 'right', nome: 'A destra', desc: 'accanto al pulsante di aiuto' },
+  { id: 'center', nome: 'Al centro', desc: 'al centro della barra' },
+  { id: 'left', nome: 'A sinistra', desc: 'dopo il nome della scuola' }
+];
+
+var BUTTON_THEMES = [
+  { id: 'vivid', nome: 'Evidenziato', desc: 'viola acceso: si vede subito che è un pulsante dell\'estensione',
+    vars: { bg: '#7c3aed', fg: '#ffffff', border: '#6d28d9', hoverBg: '#6d28d9', ring: 'rgba(124,58,237,.35)', shadow: '0 2px 8px rgba(124,58,237,.45)',
+      tipBg: '#2e1065', tipFg: '#ffffff', mark: '#facc15' } },
+  { id: 'contrast', nome: 'Alto contrasto', desc: 'nero e giallo, la massima leggibilità',
+    vars: { bg: '#000000', fg: '#ffeb3b', border: '#ffeb3b', hoverBg: '#1f1f1f', ring: 'rgba(255,235,59,.6)', shadow: '0 0 0 2px #000',
+      tipBg: '#000000', tipFg: '#ffeb3b', mark: '#ffeb3b' } },
+  { id: 'sepia', nome: 'Seppia', desc: 'toni caldi, riposanti per la vista',
+    vars: { bg: '#f4e8d0', fg: '#5b4636', border: '#c8ad86', hoverBg: '#ead9b8', ring: 'rgba(139,94,52,.3)', shadow: '0 1px 3px rgba(91,70,54,.3)',
+      tipBg: '#5b4636', tipFg: '#f4e8d0', mark: '#b5651d' } },
+  { id: 'light', nome: 'Chiaro', desc: 'bianco con icone blu',
+    vars: { bg: '#ffffff', fg: '#1d4ed8', border: '#bfdbfe', hoverBg: '#eff6ff', ring: 'rgba(29,78,216,.25)', shadow: '0 1px 3px rgba(15,23,42,.18)',
+      tipBg: '#1f2937', tipFg: '#ffffff', mark: '#1d4ed8' } },
+  { id: 'dark', nome: 'Scuro', desc: 'grafite con icone chiare',
+    vars: { bg: '#1f2937', fg: '#f9fafb', border: '#374151', hoverBg: '#374151', ring: 'rgba(148,163,184,.4)', shadow: '0 2px 6px rgba(0,0,0,.35)',
+      tipBg: '#111827', tipFg: '#f9fafb', mark: '#60a5fa' } },
+  { id: 'argo', nome: 'Simil Argo', desc: 'colori di DidUP: i pulsanti si mimetizzano con la pagina',
+    vars: { bg: 'transparent', fg: '#11799c', border: 'transparent', hoverBg: '#e6f2f6', ring: 'rgba(17,121,156,.25)', shadow: 'none',
+      tipBg: '#234e66', tipFg: '#ffffff', mark: 'transparent' } }
+];
+
+function buttonTheme(id) {
+  return BUTTON_THEMES.find(t => t.id === id) || BUTTON_THEMES[0];
+}
+
+// Variabili CSS dello stile, da mettere in un selettore (es. ":host").
+function buttonThemeCss(id) {
+  const v = buttonTheme(id).vars;
+  return `--b-bg:${v.bg};--b-fg:${v.fg};--b-border:${v.border};--b-hover:${v.hoverBg};--b-ring:${v.ring};` +
+    `--b-shadow:${v.shadow};--b-tip-bg:${v.tipBg};--b-tip-fg:${v.tipFg};--b-mark:${v.mark};`;
+}
+
+// Icone e aspetto dei pulsanti: gli stessi nel registro e nell'anteprima delle impostazioni.
+var BOOSTER_ICONS = {
+  firma: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+  appello: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>',
+  book: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>'
+};
+
+var BOOSTER_ACTIONS = [
+  { id: 'firma', label: 'Firma ora', tip: 'Firma ora: la tua lezione in corso o la prossima' },
+  { id: 'appello', label: 'Appello', tip: 'Appello: apre l\'appello della lezione più vicina all\'ora' }
+];
+
+var BOOSTER_BUTTON_SIZE = 36;
+var BOOSTER_BUTTON_GAP = 8;
+
+// Pulsanti rotondi con la scritta che compare al passaggio del mouse (classe .b).
+function boosterButtonsCss() {
+  return `
+    .bar { display: flex; gap: ${BOOSTER_BUTTON_GAP}px; }
+    .b { position: relative; width: ${BOOSTER_BUTTON_SIZE}px; height: ${BOOSTER_BUTTON_SIZE}px; padding: 0; margin: 0;
+         display: grid; place-items: center; border-radius: 50%; border: 1.5px solid var(--b-border);
+         background: var(--b-bg); color: var(--b-fg); box-shadow: var(--b-shadow); cursor: pointer;
+         transition: background .15s, transform .1s; }
+    .b:hover { background: var(--b-hover); }
+    .b:active { transform: scale(.94); }
+    .b:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--b-ring); }
+    .b[disabled] { cursor: progress; opacity: .7; }
+    .b.busy::before { content: ''; position: absolute; inset: -4px; border-radius: 50%;
+                      border: 2px solid transparent; border-top-color: var(--b-fg); animation: spin 1s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    /* puntino: pulsante aggiunto dall'estensione */
+    .b::after { content: ''; position: absolute; top: -1px; right: -1px; width: 9px; height: 9px; border-radius: 50%;
+                background: var(--b-mark); box-shadow: 0 0 0 1.5px var(--b-bg); }
+    .tip { position: absolute; top: calc(100% + 8px); left: 50%; transform: translateX(-50%); white-space: nowrap;
+           padding: 5px 9px; border-radius: 7px; background: var(--b-tip-bg); color: var(--b-tip-fg);
+           font: 600 12px/1.3 system-ui, -apple-system, 'Segoe UI', sans-serif; pointer-events: none;
+           opacity: 0; transition: opacity .12s; box-shadow: 0 4px 14px rgba(0,0,0,.2); z-index: 1; }
+    .tip small { display: block; font-weight: 400; opacity: .8; }
+    .b:hover .tip, .b:focus-visible .tip { opacity: 1; }`;
+}
+
+// Pulsante con icona e testo («Argomenti e compiti»), stesso stile (classe .pill).
+function boosterPillCss() {
+  return `
+    .pill { position: relative; display: inline-flex; align-items: center; gap: 6px; padding: 3px 12px 3px 9px; margin: 0;
+            border: 1.5px solid var(--b-border); border-radius: 999px; background: var(--b-bg); color: var(--b-fg);
+            box-shadow: var(--b-shadow); font: 600 12px/1.6 system-ui, -apple-system, 'Segoe UI', sans-serif; font-style: normal;
+            cursor: pointer; white-space: nowrap; }
+    .pill:hover { background: var(--b-hover); }
+    .pill:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--b-ring); }
+    .pill[aria-expanded="true"] { box-shadow: 0 0 0 3px var(--b-ring); }
+    .pill::after { content: ''; position: absolute; top: -2px; right: -2px; width: 8px; height: 8px; border-radius: 50%;
+                   background: var(--b-mark); box-shadow: 0 0 0 1.5px var(--b-bg); }`;
+}
+
+// HTML di un pulsante rotondo (senza gestori di eventi).
+function boosterButtonHtml(action) {
+  return `<button type="button" class="b" data-action="${action.id}" aria-label="${action.label} (Argo DidUP Booster)">` +
+    `${BOOSTER_ICONS[action.id]}<span class="tip">${action.tip}<small>Argo DidUP Booster</small></span></button>`;
 }
 
 // ---------------------------------------------------------------------
@@ -305,7 +411,7 @@ function isFlowStage(flow, stage, ttl = LOGIN_FLOW_TTL_MS) {
 
 // ---------------------------------------------------------------------
 // File aggiornati sul disco (estensione caricata "decompressa").
-// Chrome rilegge dal disco popup e impostazioni a ogni apertura, ma il
+// Chrome rilegge dal disco la pagina delle impostazioni a ogni apertura, ma il
 // service worker e gli script delle pagine restano quelli caricati finché
 // l'estensione non viene ricaricata: in quel caso l'accesso automatico non
 // parte. Se la versione sul disco è diversa da quella in esecuzione,

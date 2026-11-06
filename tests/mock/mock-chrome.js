@@ -74,6 +74,7 @@
       onReplaced: ev('tabs.onReplaced')
     },
     windows: { update: rec('windows.update') },
+    alarms: { get: rec('alarms.get', () => undefined), create: rec('alarms.create'), onAlarm: ev('alarms.onAlarm') },
     action: {
       setPopup: rec('action.setPopup'), setBadgeText: rec('action.setBadgeText'),
       setBadgeBackgroundColor: rec('action.setBadgeBackgroundColor'), setTitle: rec('action.setTitle'),

@@ -182,69 +182,123 @@ function bindAccesso() {
 
 // =================== SESSIONE ===================
 
-function formatDuration(sec) {
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
-  if (m === 0) return `${s} s`;
-  return s ? `${m} min ${s} s` : `${m} min`;
-}
-
-function updateIntervalLabel() {
-  const raw = Number($('keepAliveInterval').value);
-  $('interval-human').textContent = Number.isFinite(raw) && raw > 0 ? `= ${formatDuration(clampInterval(raw))}` : '';
-}
-
-function updateKeepAliveDisabled() {
-  $('keepalive-options').classList.toggle('disabled', !state.keepAliveEnabled);
-}
-
 function bindSessione() {
-  $('keepAliveEnabled').addEventListener('change', e => {
-    save({ keepAliveEnabled: e.target.checked });
-    updateKeepAliveDisabled();
-  });
-
-  const interval = $('keepAliveInterval');
-  interval.addEventListener('input', updateIntervalLabel);
-  interval.addEventListener('change', () => {
-    const v = clampInterval(interval.value);
-    interval.value = v;
-    updateIntervalLabel();
-    save({ keepAliveInterval: v });
-  });
-
-  document.querySelectorAll('input[name="keepAliveMethod"]').forEach(radio => {
-    radio.addEventListener('change', () => {
-      if (radio.checked) save({ keepAliveMethod: radio.value });
-    });
-  });
+  $('keepAliveEnabled').addEventListener('change', e => save({ keepAliveEnabled: e.target.checked }));
 }
+
+const fmtTime = ts => new Date(ts).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
 
 function renderKeepAliveStatus(st) {
   const el = $('keepalive-status');
   el.className = 'status-line';
+  el.textContent = '';
+  if (!state.keepAliveEnabled) {
+    el.textContent = 'Mantenimento della sessione disattivato.';
+    return;
+  }
   if (!st || !st.time) {
-    el.textContent = 'Nessun refresh ancora eseguito: si attiva quando sei dentro il registro.';
+    el.textContent = 'Nessun controllo ancora eseguito: parte entro un minuto quando sei dentro il registro.';
     return;
   }
   const when = new Date(st.time).toLocaleString('it-IT', {
     day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'
   });
+  const details = [];
+  if (st.lastRenewAt) details.push(`token di accesso rinnovato alle ${fmtTime(st.lastRenewAt)}`);
+  if (st.tokenExpiresAt && !st.expired) {
+    const min = Math.round((st.tokenExpiresAt - Date.now()) / 60000);
+    details.push(min > 0 ? `il token vale ancora circa ${min} min (verrà rinnovato prima)` : 'token in scadenza: rinnovo in corso');
+  }
+  if (st.noOidc) details.push('rinnovo del token non disponibile in questa pagina: solo richieste al server');
+  if (st.renewError) details.push(`rinnovo del token non riuscito: ${st.renewError}`);
   if (st.expired) {
     el.classList.add('err');
-    el.textContent = `⚠️ Sessione scaduta (rilevato il ${when}). Effettua di nuovo l'accesso.`;
+    el.textContent = `⚠️ Sessione scaduta (rilevato il ${when}). Rifai l'accesso: clic sull'icona dell'estensione o «Accedi di nuovo» nel registro.`;
   } else if (st.ok) {
     el.classList.add('ok');
-    const labels = {
-      start: '✓ Mantenimento della sessione avviato',
-      reload: '✓ Ultimo refresh (ricarica pagina)',
-      ping: '✓ Ultimo rinnovo della sessione'
-    };
-    el.textContent = `${labels[st.action] || labels.ping}: ${when}`;
+    el.textContent = st.action === 'renew' ? `✓ Token di accesso rinnovato: ${when}` : `✓ Sessione attiva · ultimo controllo: ${when}`;
   } else {
     el.classList.add('err');
-    el.textContent = `Ultimo refresh non riuscito (${when})` + (st.error ? `: ${st.error}` : '');
+    el.textContent = `Ultimo controllo non riuscito (${when})` + (st.error ? `: ${st.error}` : st.httpStatus ? `: risposta ${st.httpStatus} dal server` : '');
   }
+  if (details.length) {
+    const ul = document.createElement('ul');
+    for (const d of details) {
+      const li = document.createElement('li');
+      li.textContent = d;
+      ul.appendChild(li);
+    }
+    el.appendChild(ul);
+  }
+}
+
+// =================== PULSANTI NEL REGISTRO ===================
+
+// Anteprima: gli stessi pulsanti (CSS e icone di settings.js) dentro una
+// barra che imita quella di DidUP.
+let previewRoots = null;
+
+function buildPreview() {
+  const mk = (id, html) => {
+    const host = $(id);
+    const root = host.attachShadow({ mode: 'open' });
+    root.innerHTML = html;
+    return root;
+  };
+  previewRoots = {
+    buttons: mk('pv-buttons', `<style>:host{all:initial}${boosterButtonsCss()}</style><style class="theme"></style>
+      <div class="bar">${BOOSTER_ACTIONS.map(boosterButtonHtml).join('')}</div>`),
+    topics: mk('pv-topics', `<style>:host{all:initial}${boosterPillCss()}</style><style class="theme"></style>
+      <button type="button" class="pill" tabindex="-1">${BOOSTER_ICONS.book}<span>Argomenti e compiti</span></button>`)
+  };
+}
+
+function renderPreview() {
+  if (!previewRoots) return;
+  const css = `:host { ${buttonThemeCss(state.buttonsTheme)} }`;
+  for (const root of Object.values(previewRoots)) root.querySelector('style.theme').textContent = css;
+  const pv = $('pv-buttons');
+  pv.style.left = pv.style.right = '';
+  pv.style.transform = 'translateY(-50%)';
+  if (state.buttonsPosition === 'left') pv.style.left = '210px';
+  else if (state.buttonsPosition === 'center') { pv.style.left = '50%'; pv.style.transform = 'translate(-50%, -50%)'; }
+  else pv.style.right = '118px';
+  const pos = BUTTON_POSITIONS.find(p => p.id === state.buttonsPosition);
+  $('position-hint').textContent = pos ? `${pos.nome}: ${pos.desc}.` : '';
+  document.querySelectorAll('input[name="buttonsPosition"]').forEach(r => { r.checked = r.value === state.buttonsPosition; });
+  document.querySelectorAll('input[name="buttonsTheme"]').forEach(r => { r.checked = r.value === state.buttonsTheme; });
+}
+
+function bindPulsanti() {
+  const group = $('position-group');
+  for (const p of BUTTON_POSITIONS) {
+    const label = document.createElement('label');
+    label.innerHTML = `<input type="radio" name="buttonsPosition" value="${p.id}"><span></span>`;
+    label.querySelector('span').textContent = p.nome;
+    label.querySelector('input').addEventListener('change', e => {
+      if (!e.target.checked) return;
+      save({ buttonsPosition: p.id });
+      renderPreview();
+    });
+    group.appendChild(label);
+  }
+  const list = $('theme-list');
+  for (const t of BUTTON_THEMES) {
+    const label = document.createElement('label');
+    label.className = 'theme-option';
+    label.style.cssText = buttonThemeCss(t.id);
+    label.innerHTML = `<input type="radio" name="buttonsTheme" value="${t.id}"><span class="sw">${BOOSTER_ICONS.firma}</span>` +
+      '<span class="tx"><strong></strong><small></small></span>';
+    label.querySelector('strong').textContent = t.nome + (t.id === DEFAULT_SETTINGS.buttonsTheme ? ' (predefinito)' : '');
+    label.querySelector('small').textContent = t.desc;
+    label.querySelector('input').addEventListener('change', e => {
+      if (!e.target.checked) return;
+      save({ buttonsTheme: t.id });
+      renderPreview();
+    });
+    list.appendChild(label);
+  }
+  buildPreview();
 }
 
 // =================== LISTE ORDINABILI ===================
@@ -873,12 +927,7 @@ function fillForm() {
   updateProviderField();
   $('autoLogin').checked = state.autoLogin;
   $('keepAliveEnabled').checked = state.keepAliveEnabled;
-  $('keepAliveInterval').value = state.keepAliveInterval;
-  updateIntervalLabel();
-  document.querySelectorAll('input[name="keepAliveMethod"]').forEach(r => {
-    r.checked = r.value === state.keepAliveMethod;
-  });
-  updateKeepAliveDisabled();
+  renderPreview();
   for (const key of URL_KEYS) $(key).value = state[key];
   updateMissingCode();
   renderTopicsSection();
@@ -900,6 +949,7 @@ function renderInfo() {
   bindScuola();
   bindAccesso();
   bindSessione();
+  bindPulsanti();
   bindDiscipline();
   bindArgomenti();
   bindBackup();
@@ -909,11 +959,11 @@ function renderInfo() {
 
   if (!state.codiceScuola) $('codiceScuola').focus();
 
-  const { keepAliveStatus } = await chrome.storage.local.get('keepAliveStatus');
+  let { keepAliveStatus } = await chrome.storage.local.get('keepAliveStatus');
   renderKeepAliveStatus(keepAliveStatus);
   chrome.storage.onChanged.addListener((changes, area) => {
-    if (area === 'local' && changes.keepAliveStatus) {
-      renderKeepAliveStatus(changes.keepAliveStatus.newValue);
-    }
+    if (area !== 'local') return;
+    if (changes.keepAliveStatus) keepAliveStatus = changes.keepAliveStatus.newValue;
+    if (changes.keepAliveStatus || changes.keepAliveEnabled) renderKeepAliveStatus(keepAliveStatus);
   });
 })();

@@ -1,10 +1,11 @@
 {
   "manifest_version": 3,
   "name": "Argo DidUP Booster",
-  "version": "1.0.1",
-  "description": "Argo DidUP Booster: accesso automatico con SPID o CIE, Firma e Appello con un clic, i tuoi argomenti e compiti nel registro e sessione sempre attiva.",
+  "version": "1.1.0",
+  "description": "Argo DidUP Booster: accesso automatico con SPID o CIE, pulsanti Firma e Appello nel registro, i tuoi argomenti e compiti e sessione sempre attiva.",
   "permissions": [
     "storage",
+    "alarms",
     "activeTab",
     "scripting",
     "clipboardWrite"
@@ -48,9 +49,9 @@
         "settings.js",
         "content-common.js",
         "login.js",
-        "keepalive.js",
         "argomenti.js",
-        "azioni.js"
+        "azioni.js",
+        "toolbar.js"
       ],
       "run_at": "document_idle"
     },

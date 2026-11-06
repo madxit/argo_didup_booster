@@ -4,7 +4,7 @@
 // =====================================================================
 
 // Deve coincidere con CHANNEL di page-bridge.js.
-var PAGE_BRIDGE_CHANNEL = 'v3';
+var PAGE_BRIDGE_CHANNEL = 'v4';
 
 // Chiama page-bridge.js (world MAIN) e attende la risposta.
 function callPageBridge(action, payload = {}, timeoutMs = 10000) {
