@@ -29,11 +29,11 @@ export function copyExtension() {
   return dir;
 }
 
-// Copia per i test su server locale: popup e impostazioni caricano prima mock-chrome.js.
+// Copia per i test su server locale: le impostazioni caricano prima mock-chrome.js.
 export function prepareMockExtension() {
   const dir = copyExtension();
   fs.copyFileSync(path.join(TESTS, 'mock', 'mock-chrome.js'), path.join(dir, 'mock-chrome.js'));
-  for (const page of ['popup.html', 'options.html']) {
+  for (const page of ['options.html']) {
     const file = path.join(dir, page);
     const html = fs.readFileSync(file, 'utf8');
     fs.writeFileSync(file, html.replace('<script src="settings.js"></script>',

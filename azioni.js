@@ -1,7 +1,7 @@
 // =====================================================================
 // azioni.js — "Firma ora" e "Appello" (content script sulle pagine del
-// registro DidUP). Il popup si collega con una porta "argo-azione" e
-// riceve passo per passo cosa è stato cliccato e cosa (non) è stato trovato.
+// registro DidUP). Li avviano i pulsanti nella barra in alto (toolbar.js),
+// che mostrano passo per passo cosa è stato cliccato e cosa (non) è stato trovato.
 //
 // Per entrambe le azioni:
 //   1. clic su "Home" nel menu a sinistra (da qualsiasi schermata)
@@ -13,10 +13,15 @@
 //                  l'ultima passata non firmata
 //        Appello → in corso, altrimenti quella che inizia entro 15 minuti,
 //                  altrimenti quella appena finita, altrimenti la prossima
-//   5. Firma: clic sulle icone arancioni "da firmare" (mai su quelle già
-//      firmate: in DidUP il clic toglierebbe la firma). Se la fascia oraria
-//      di un'ora da firmare non contiene l'ora attuale (o non è nota),
-//      prima chiede il permesso: nel popup o, se è chiuso, nella pagina.
+//   5. Firma: nel registro di classe si cerca la TUA riga di quell'ora (in
+//      una classe articolata o in compresenza ci sono anche le righe dei
+//      colleghi: docente collegato in DidUP, nome e cognome nella colonna
+//      «Docente», testo dell'icona). Clic solo sulle icone arancioni "da
+//      firmare" (mai su quelle già firmate: in DidUP il clic toglierebbe la
+//      firma). Se la Home dice che l'ora in corso è già firmata, si controlla
+//      nel registro che la firma sia tua. Se la fascia oraria di un'ora da
+//      firmare non contiene l'ora attuale (o non è nota), prima chiede il
+//      permesso nel pannello dei passi.
 //      Appello: clic sul pulsante "Appello" del registro di classe
 // =====================================================================
 
@@ -93,7 +98,7 @@ var ArgoAzioni = (() => {
     return box ? txt(box.querySelector('.x-window-text, .x-form-display-field, .x-window-body') || box).slice(0, 200) : '';
   }
 
-  // Domanda nella pagina (popup chiuso): avviso con due pulsanti.
+  // Domanda nella pagina (ripiego se chi avvia non passa la sua funzione ask): avviso con due pulsanti.
   function askInPage(question, { title = 'Firma ora', confirmLabel = 'Sì', cancelLabel = 'No' } = {}) {
     return new Promise(resolve => {
       if (typeof assistantToast === 'undefined') { resolve(false); return; }
@@ -204,14 +209,81 @@ var ArgoAzioni = (() => {
     return [...document.querySelectorAll('.icon[data-iconora]')].filter(i => rowOf(i) && isShown(i));
   }
 
+  // Cella "Docente" della riga: colonna con l'intestazione «Docente»
+  // (Ext dà alle celle la classe x-grid-cell-<id della colonna>), altrimenti
+  // la colonna subito dopo quella della firma.
+  function docenteCell(row) {
+    const grid = row.closest('.x-grid, .x-panel');
+    const header = grid && [...grid.querySelectorAll('.x-column-header')]
+      .find(h => /^docente$/i.test(txt(h.querySelector('.x-column-header-text') || h)));
+    if (header && header.id) {
+      const c = row.querySelector('.x-grid-cell-' + CSS.escape(header.id));
+      if (c) return c;
+    }
+    const cells = [...row.querySelectorAll('td')];
+    const i = cells.findIndex(c => c.querySelector('.icon[data-iconora]'));
+    return i >= 0 ? cells[i + 1] || null : null;
+  }
+
+  // Solo il nome del docente: DidUP aggiunge « (SUPPLENZA)» e, sotto, il docente sostituito.
+  function docenteText(cell) {
+    if (!cell) return '';
+    const copy = (cell.querySelector('.x-grid-cell-inner') || cell).cloneNode(true);
+    copy.querySelectorAll('div').forEach(d => d.remove());
+    return txt(copy).replace(/\(supplenza\)/i, '').trim();
+  }
+
   function readRegistroRows() {
     return gridIcons().map(icon => {
       const cell = icon.closest('td, .x-grid-cell') || icon.parentElement;
       const row = rowOf(icon);
       const stato = icon.classList.contains('icon-ora-da-firmare') ? 'da-firmare'
         : icon.classList.contains('icon-ora-firmata') ? 'firmata' : 'altro';
-      return { numOra: Number(icon.getAttribute('data-iconora')), stato, tempo: parseRange(txt(cell)), icon, row };
+      const idxEl = row.closest('[data-recordindex]');
+      const etichetta = `${icon.getAttribute('aria-label') || ''} ${icon.getAttribute('data-qtip') || ''}`;
+      return {
+        numOra: Number(icon.getAttribute('data-iconora')), stato, tempo: parseRange(txt(cell)), icon, row,
+        index: idxEl ? Number(idxEl.getAttribute('data-recordindex')) : null,
+        docente: docenteText(docenteCell(row)),
+        // testo dell'icona scritto da DidUP: "firmata da un altro docente", "Clicca per firmare"…
+        altroDocente: /altro docente/i.test(etichetta),
+        etichetta,
+        mia: null
+      };
     }).filter(r => r.numOra > 0);
+  }
+
+  // "ROSSI MARIO" = "Mario Rossi" = "ROSSI MARIO GIUSEPPE" (stesse parole, in qualsiasi ordine).
+  function nameTokens(nome) {
+    return foldText(nome).replace(/[^a-z' ]+/g, ' ').split(/[\s']+/).filter(t => t.length > 1);
+  }
+  function sameName(a, b) {
+    const ta = nameTokens(a), tb = nameTokens(b);
+    if (!ta.length || !tb.length) return false;
+    const [short, long] = ta.length <= tb.length ? [ta, tb] : [tb, ta];
+    if (short.length < 2 && long.length > 1) return false;
+    return short.every(t => long.includes(t));
+  }
+
+  // Di chi è ogni riga? In una classe articolata o in compresenza la stessa
+  // ora ha più righe, una per docente. In ordine di affidabilità:
+  //   1. DidUP: la riga ha l'anagrafica del docente collegato (dati del registro);
+  //   2. nome e cognome nella colonna «Docente» uguali ai tuoi;
+  //   3. l'icona: arancione «da firmare» solo sulle tue righe, «firmata da un
+  //      altro docente» su quelle dei colleghi.
+  function assegnaRighe(righe, dati, nomi) {
+    for (const r of righe) {
+      const d = dati && dati.ok && Array.isArray(dati.righe) && r.index != null ? dati.righe[r.index] : null;
+      const datiOk = d && d.numOra === r.numOra;
+      if (datiOk && d.docente) r.docente = d.docente;
+      const perPk = datiOk && typeof d.mia === 'boolean' ? d.mia : null;
+      const perNome = nomi.length && r.docente ? nomi.some(n => sameName(n, r.docente)) : null;
+      const perIcona = r.stato === 'da-firmare' ? true : r.altroDocente ? false
+        : /eliminare la firma/i.test(r.etichetta) ? true : null;
+      r.mia = perPk ?? perNome ?? perIcona ?? false;
+      r.come = perPk != null ? 'DidUP' : perNome != null ? 'nome' : perIcona != null ? 'icona' : 'nessuno';
+    }
+    return righe;
   }
 
   function appelloButton() {
@@ -231,7 +303,9 @@ var ArgoAzioni = (() => {
       : lezioni.filter(l => l.stato !== 'altro');
     if (pool.length === 0) {
       if (mode !== 'firma' || !lezioni.length) return { lezione: null, motivo: 'nessuna' };
-      return { lezione: null, motivo: lezioni.every(l => l.stato === 'firmata') ? 'tutte-firmate' : 'icone-sconosciute' };
+      if (!lezioni.every(l => l.stato === 'firmata')) return { lezione: null, motivo: 'icone-sconosciute' };
+      const firmataInCorso = lezioni.find(l => l.inizio != null && l.fine != null && l.inizio <= now && now < l.fine);
+      return { lezione: null, motivo: 'tutte-firmate', inCorso: firmataInCorso || null, prossima: null };
     }
     const conOrario = l => l.inizio != null && l.fine != null;
     if (!pool.every(conOrario)) {
@@ -271,14 +345,29 @@ var ArgoAzioni = (() => {
   // Esecuzione
   // ------------------------------------------------------------------
 
-  async function esegui(action, onStep = () => {}, { now = new Date(), ask = askInPage } = {}) {
+  async function esegui(action, onStep = () => {}, { now = new Date(), ask = askInPage, docenteNome = null } = {}) {
     const nome = action === 'appello' ? 'Appello' : 'Firma ora';
     const steps = [];
     const step = (text, kind = 'ok') => {
       steps.push({ text, kind });
-      try { onStep({ text, kind }); } catch (e) { /* popup chiuso */ }
+      try { onStep({ text, kind }); } catch (e) { /* pannello chiuso */ }
     };
     const nowMin = now.getHours() * 60 + now.getMinutes();
+
+    // Il tuo nome: quello di DidUP (letto con le righe del registro) e quello delle impostazioni.
+    let nomeImpostazioni = docenteNome;
+    if (nomeImpostazioni == null) {
+      try { nomeImpostazioni = typeof loadSettings === 'function' ? (await loadSettings()).docenteNome : ''; } catch (e) { nomeImpostazioni = ''; }
+    }
+    let nomeDidup = '';
+
+    async function leggiRighe() {
+      const righe = readRegistroRows();
+      const dati = await bridge('registroLessons');
+      if (dati.ok && dati.utente) nomeDidup = dati.utente;
+      const nomi = [nomeDidup, nomeImpostazioni].filter(Boolean);
+      return assegnaRighe(righe, dati, nomi);
+    }
 
     async function goHome() {
       if (editingLesson()) {
@@ -382,7 +471,7 @@ var ArgoAzioni = (() => {
       }
       await sleep(300);
       step(`Aperto il registro di classe ${lezione.classe}`);
-      return readRegistroRows();
+      return leggiRighe();
     }
 
     // Orari dalla tabella del registro (o, in mancanza, dai dati del registro).
@@ -402,17 +491,38 @@ var ArgoAzioni = (() => {
       return mappa;
     }
 
+    const statoRiga = r => r.stato === 'da-firmare' ? 'da firmare' : r.stato === 'firmata' ? 'firmata' : 'senza firma';
+    const chiRiga = r => `${r.docente || 'docente non indicato'} (${statoRiga(r)}, ${r.mia ? 'tua' : 'di un altro docente'})`;
+
+    // Righe della stessa ora (classe articolata, compresenza): si dice di chi sono.
+    function descriviOra(lezione, righe) {
+      const allaOra = righe.filter(r => r.numOra === lezione.numOra);
+      if (allaOra.length > 1 || allaOra.some(r => !r.mia)) {
+        step(`Nella ${ord(lezione.numOra)} ora di ${lezione.classe} ci ${allaOra.length === 1 ? 'è 1 riga' : `sono ${allaOra.length} righe`}: ` +
+          allaOra.map(chiRiga).join('; '));
+      }
+      return allaOra;
+    }
+
+    function rigaMia(lezione, righe) {
+      const mie = righe.filter(r => r.numOra === lezione.numOra && r.mia);
+      return mie.find(r => r.stato === 'da-firmare') || mie.find(r => r.stato === 'firmata') || null;
+    }
+
     async function firma(lezione, righe) {
-      const target = righe.find(r => r.numOra === lezione.numOra && (r.stato === 'da-firmare' || r.stato === 'firmata'));
+      const allaOra = descriviOra(lezione, righe);
+      const target = rigaMia(lezione, righe);
       if (!target) {
-        fail(`Nel registro di ${lezione.classe} non trovo la ${ord(lezione.numOra)} ora tra le tue lezioni ` +
-          `(cercavo l'icona di firma arancione con il numero ${lezione.numOra} nella tabella delle ore).`);
+        fail(`Nel registro di ${lezione.classe} non trovo la tua riga per la ${ord(lezione.numOra)} ora` +
+          (allaOra.length ? ` (ci ${allaOra.length === 1 ? 'è solo la riga' : 'sono solo le righe'} di ${allaOra.map(r => r.docente || 'un docente non indicato').join(', ')}). ` +
+            'Se è tua, scrivi nome e cognome come in DidUP nelle impostazioni (Cognome e nome del docente).'
+            : ` (cercavo un'icona di firma con il numero ${lezione.numOra} nella tabella delle ore).`));
       }
       if (target.stato === 'firmata') {
-        return { ok: true, summary: `La ${describe(lezione)} è già firmata: non ho cliccato nulla.` };
+        return { ok: true, summary: `La ${describe(lezione)} è già firmata da te${target.docente ? ` (${target.docente})` : ''}: non ho cliccato nulla.` };
       }
-      // Blocco di ore consecutive tue e da firmare nella stessa classe (come prima).
-      const mie = new Map(righe.filter(r => r.stato === 'da-firmare').map(r => [r.numOra, r]));
+      // Blocco di ore consecutive tue e da firmare nella stessa classe.
+      const mie = new Map(righe.filter(r => r.mia && r.stato === 'da-firmare').map(r => [r.numOra, r]));
       let da = lezione.numOra, a = lezione.numOra;
       while (mie.has(da - 1)) da--;
       while (mie.has(a + 1)) a++;
@@ -458,19 +568,25 @@ var ArgoAzioni = (() => {
 
       const firmate = [];
       for (const n of daFirmare) {
-        const icon = gridIcons().find(i => Number(i.getAttribute('data-iconora')) === n);
-        if (!icon) fail(`Non trovo più l'icona di firma della ${ord(n)} ora nel registro di ${lezione.classe}.`);
-        if (icon.classList.contains('icon-ora-firmata')) { firmate.push(n); continue; }
-        if (!icon.classList.contains('icon-ora-da-firmare')) {
+        const ora = { numOra: n, classe: lezione.classe };
+        const riga = rigaMia(ora, await leggiRighe());
+        if (!riga) fail(`Non trovo più la tua riga della ${ord(n)} ora nel registro di ${lezione.classe}.`);
+        if (riga.stato === 'firmata') { firmate.push(n); continue; }
+        if (!riga.icon.classList.contains('icon-ora-da-firmare')) {
           fail(`L'icona della ${ord(n)} ora non è un'icona «da firmare»: non la clicco.`);
         }
-        clickLikeUser(icon);
-        step(`Cliccata l'icona arancione «da firmare» della ${ord(n)} ora`);
+        clickLikeUser(riga.icon);
+        step(`Cliccata l'icona arancione «da firmare» della ${ord(n)} ora` + (riga.docente ? ` (riga di ${riga.docente})` : ''));
         const ok = await waitFor(() => {
           const msg = messageBoxText();
           if (msg) return { msg };
-          const i = gridIcons().find(x => Number(x.getAttribute('data-iconora')) === n);
-          return i && i.classList.contains('icon-ora-firmata') && !loadingMaskShown() ? { ok: true } : null;
+          if (loadingMaskShown()) return null;
+          const ora = readRegistroRows().filter(x => x.numOra === n);
+          // stessa riga della tabella (DidUP la ridisegna dopo la firma), oppure nessuna icona «da firmare» rimasta a quell'ora
+          const stessa = riga.index != null ? ora.find(x => x.index === riga.index) : null;
+          const fatta = stessa ? stessa.stato === 'firmata'
+            : ora.length > 0 && !ora.some(x => x.stato === 'da-firmare') && ora.some(x => x.stato === 'firmata' && !x.altroDocente);
+          return fatta ? { ok: true } : null;
         }, WAIT_FIRMA_MS);
         if (!ok || ok.msg) {
           fail(`Ho cliccato l'icona di firma della ${ord(n)} ora, ma ` +
@@ -552,7 +668,30 @@ var ArgoAzioni = (() => {
       }
 
       const scelta = scegliLezione(action, lezioni, nowMin);
-      if (!scelta.lezione) {
+      let lezione = scelta.lezione;
+      if (!lezione) {
+        // La Home segna «firmata» l'ora in corso: in una classe articolata può
+        // essere la firma di un collega. Si controlla nella tabella del registro.
+        if (action === 'firma' && scelta.inCorso) {
+          const l = scelta.inCorso;
+          step(`La Home indica come già firmata la lezione in corso (${describe(l)}): controllo nel registro che la firma sia tua`);
+          if (righeAperte) await goHome();
+          const righe = await entraNelRegistro(l);
+          descriviOra(l, righe);
+          const mia = rigaMia(l, righe);
+          if (mia && mia.stato === 'da-firmare') {
+            step(`La tua riga della ${ord(l.numOra)} ora non è firmata: la firmo`, 'warn');
+            const t = righe.find(r => r.numOra === l.numOra && r.tempo);
+            if (t && l.inizio == null) Object.assign(l, { inizio: t.tempo.inizio, fine: t.tempo.fine });
+            return { ...(await firma(l, righe)), steps };
+          }
+          if (!mia) {
+            fail(`Nel registro di ${l.classe} non trovo la tua riga per la ${ord(l.numOra)} ora: la firma che si vede è di un altro docente. ` +
+              'Se l\'ora è tua, scrivi nome e cognome come in DidUP nelle impostazioni (Cognome e nome del docente).');
+          }
+          return { ok: true, steps, summary: `La lezione in corso (${describe(l)}) è già firmata da te${mia.docente ? ` (${mia.docente})` : ''}.` +
+            (scelta.prossima ? ` La prossima da firmare è la ${describe(scelta.prossima)}.` : scelta.motivo === 'tutte-firmate' ? ' Le altre lezioni di oggi risultano già firmate.' : ' Non ci sono altre lezioni da firmare dopo.') };
+        }
         if (scelta.motivo === 'tutte-firmate') {
           return { ok: true, steps, summary: 'Tutte le tue lezioni di oggi risultano già firmate: non ho cliccato nulla.' };
         }
@@ -560,13 +699,8 @@ var ArgoAzioni = (() => {
           fail('Nella Home non riconosco lo stato di firma delle lezioni (le icone non sono quelle previste ' +
             '«da firmare» / «firmata»): non clicco nulla, firma a mano.');
         }
-        if (scelta.motivo === 'in-corso-gia-firmata') {
-          return { ok: true, steps, summary: `La lezione in corso (${describe(scelta.inCorso)}) è già firmata.` +
-            (scelta.prossima ? ` La prossima da firmare è la ${describe(scelta.prossima)}.` : ' Non ci sono altre lezioni da firmare dopo.') };
-        }
         fail('Nella Home non trovo lezioni tue per oggi.');
       }
-      const lezione = scelta.lezione;
       step(`Ora attuale ${fmtMin(nowMin)} → ${MOTIVI[scelta.motivo] || scelta.motivo}: ${describe(lezione)}` +
         (lezione.origineOrario && lezione.origineOrario !== 'Home' ? ` [orario dal ${lezione.origineOrario}]` : ''));
 
@@ -579,7 +713,7 @@ var ArgoAzioni = (() => {
         if (righeAperte) await goHome();
         righe = await entraNelRegistro(lezione);
       } else {
-        righe = readRegistroRows();
+        righe = await leggiRighe();
       }
       const t = righe.find(r => r.numOra === lezione.numOra && r.tempo);
       if (t && lezione.inizio == null) Object.assign(lezione, { inizio: t.tempo.inizio, fine: t.tempo.fine });
@@ -593,69 +727,5 @@ var ArgoAzioni = (() => {
     }
   }
 
-  return { esegui, askInPage, scegliLezione, parseRange, readDashboardLessons, readRegistroRows, findHomeMenuItem };
-})();
-
-// ---------------------------------------------------------------------
-// Collegamento con il popup
-// ---------------------------------------------------------------------
-(() => {
-  const instanceId = Math.random().toString(36).slice(2);
-  document.documentElement.dataset.argoAssistantAzioni = instanceId;
-  const isCurrent = () => document.documentElement.dataset.argoAssistantAzioni === instanceId &&
-    typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.id;
-  let running = false;
-
-  chrome.runtime.onConnect.addListener(port => {
-    if (port.name !== 'argo-azione' || !isCurrent()) return;
-    let popupOpen = true;
-    const pendingAsks = new Map();         // id → { resolve, question, opts }
-    port.onDisconnect.addListener(() => {
-      popupOpen = false;
-      // Popup chiuso mentre aspettava una risposta: la domanda passa nella pagina.
-      for (const [id, p] of pendingAsks) { pendingAsks.delete(id); ArgoAzioni.askInPage(p.question, p.opts).then(p.resolve); }
-    });
-    const send = msg => { if (popupOpen) { try { port.postMessage(msg); } catch (e) { popupOpen = false; } } };
-
-    const ask = (question, opts = {}) => new Promise(resolve => {
-      if (!popupOpen) { ArgoAzioni.askInPage(question, opts).then(resolve); return; }
-      const id = Math.random().toString(36).slice(2);
-      pendingAsks.set(id, { resolve, question, opts });
-      send({ type: 'ask', id, question, confirmLabel: opts.confirmLabel, cancelLabel: opts.cancelLabel });
-    });
-
-    port.onMessage.addListener(async msg => {
-      if (msg && msg.type === 'answer' && pendingAsks.has(msg.id)) {
-        const p = pendingAsks.get(msg.id);
-        pendingAsks.delete(msg.id);
-        p.resolve(Boolean(msg.ok));
-        return;
-      }
-      if (!msg || msg.type !== 'run') return;
-      const nome = msg.action === 'appello' ? 'Appello' : 'Firma ora';
-      if (running) {
-        send({ type: 'done', result: { ok: false, steps: [], error: 'C\'è già un\'azione in corso in questa pagina: attendi che finisca.' } });
-        return;
-      }
-      running = true;
-      let result;
-      try {
-        result = await ArgoAzioni.esegui(msg.action === 'appello' ? 'appello' : 'firma', s => {
-          send({ type: 'step', step: s });
-          // (le domande hanno il loro avviso con i pulsanti)
-          if (!popupOpen && s.kind !== 'ask' && typeof assistantToast !== 'undefined') {
-            assistantToast.show(nome, s.text, { warn: s.kind === 'error' });
-          }
-        }, { ask });
-      } finally {
-        running = false;
-      }
-      send({ type: 'done', result });
-      // Popup chiuso nel frattempo: il risultato compare nella pagina.
-      if (!popupOpen && typeof assistantToast !== 'undefined') {
-        assistantToast.show(nome, result.ok ? result.summary : result.error, { warn: !result.ok, duration: result.ok ? 10000 : 0 });
-      }
-    });
-    send({ type: 'ready' });
-  });
+  return { esegui, askInPage, scegliLezione, parseRange, readDashboardLessons, readRegistroRows, findHomeMenuItem, sameName, assegnaRighe };
 })();

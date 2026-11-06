@@ -12,7 +12,9 @@
 //                 scritto tu (stesso separatore "a capo" del pulsante
 //                 "Argomenti" di Argo)
 //   • dashboardLessons / registroLessons → lezioni di oggi con gli orari,
-//                 dai dati già caricati dalla Home / dal registro di classe
+//                 dai dati già caricati dalla Home / dal registro di classe;
+//                 per ogni riga del registro anche il docente e se è tua
+//                 (classi articolate e compresenze: più righe per la stessa ora)
 //   • goHome    → apre la Home (ripiego se la voce del menu non si trova)
 //   • viewVisible → una schermata di DidUP (xtype) è visibile?
 // Comunica con i content script tramite CustomEvent con dettaglio JSON.
@@ -22,7 +24,7 @@
   // Canale versionato: dopo un aggiornamento dell'estensione il ponte nuovo
   // si aggiunge a quello vecchio (rimasto nella pagina) senza che entrambi
   // rispondano alle stesse richieste (es. un argomento inserito due volte).
-  const CHANNEL = 'v3';
+  const CHANNEL = 'v4';
   const FLAG = '__argoAssistantBridge_' + CHANNEL;
   if (window[FLAG]) return;
   window[FLAG] = true;
@@ -83,6 +85,18 @@
     return list[list.length - 1] || null;
   }
 
+  // "COGNOME NOME" dell'utente collegato (store "userdata" della vista principale).
+  function userName() {
+    try {
+      const W = window.WSX;
+      const vm = W.app.getMainView().getViewModel();
+      const rec = vm.getStore('userdata').getAt(0);
+      return rec ? String(rec.get('descutente') || '') : '';
+    } catch (e) {
+      return '';
+    }
+  }
+
   function appendText(current, text) {
     current = current || '';
     if (!current) return text;
@@ -118,23 +132,36 @@
       return { ok: true, classi };
     },
 
-    // Righe del registro di classe aperto (store "attivita").
+    // Righe del registro di classe aperto (store "attivita"), nell'ordine
+    // della tabella (= attributo data-recordindex delle righe).
+    // `mia`: la riga è del docente collegato (stesso anagrafePK, come fa DidUP
+    // per colorare l'icona); null se DidUP non lo dice.
     registroLessons() {
       const view = visibleCmp('attivita-view');
       const vm = view && view.lookupViewModel && view.lookupViewModel();
       const store = vm && vm.getStore && vm.getStore('attivita');
       if (!store || !store.getRange) return { ok: false, reason: 'no-store' };
       const W = window.WSX;
-      const myPk = W && W.util && W.util.getAnagrafePK ? W.util.getAnagrafePK() : null;
+      let myPk = null;
+      try { myPk = W && W.util && W.util.getAnagrafePK ? W.util.getAnagrafePK() : null; } catch (e) { myPk = null; }
       return {
         ok: true,
-        righe: store.getRange().map(r => ({
+        utente: userName(),
+        righe: store.getRange().map((r, index) => ({
+          index,
           numOra: Number(r.get('numOra')),
           tempo: extractTime({ oraInizioFine: r.get('oraInizioFine') }) || extractTime(r.getData ? r.getData() : r.data),
-          mia: myPk != null && r.get('anagrafePK') == myPk,
+          docente: String(r.get('nominativoDocente') || ''),
+          libera: Boolean(r.get('libera')),
+          mia: myPk == null || r.get('anagrafePK') == null ? null : r.get('anagrafePK') == myPk,
           firmata: r.get('flgPresente') === 'S'
         }))
       };
+    },
+
+    // Nome del docente collegato, come lo conosce DidUP.
+    utente() {
+      return { ok: true, nome: userName() };
     },
 
     goHome() {

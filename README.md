@@ -5,10 +5,10 @@
 Estensione per **Google Chrome** pensata per i docenti che usano il registro elettronico **Argo DidUP**. Con un clic:
 
 - **Accesso automatico.** L'estensione compila il codice scuola, sceglie SPID (con il tuo provider) o CIE e ti porta all'autenticazione. A te resta solo confermare con l'app del provider o con la CIE.
-- **Firma ora.** Trova la lezione da firmare leggendo gli orari dalla pagina e la firma. Se l'ora non è in corso, prima ti chiede il permesso.
-- **Appello.** Apre l'appello della lezione più vicina all'ora attuale, da qualsiasi schermata del registro.
+- **Firma ora.** Un pulsante nella barra del registro trova la tua lezione leggendo gli orari dalla pagina e la firma. Nelle classi articolate e in compresenza firma la **tua** riga, non quella del collega. Se l'ora non è in corso, prima ti chiede il permesso.
+- **Appello.** Un pulsante nella barra del registro apre l'appello della lezione più vicina all'ora attuale, da qualsiasi schermata.
 - **Argomenti e compiti.** Mentre modifichi una lezione, inserisci con un clic gli argomenti (in *Attività svolta*) e i compiti (in *Compiti*) che hai preparato per ogni disciplina.
-- **Mantenimento della sessione.** La sessione non scade mentre il registro è aperto.
+- **Mantenimento della sessione.** La sessione non scade mentre il registro è aperto, anche se la scheda è in secondo piano.
 
 > Progetto indipendente e **non ufficiale**: non è collegato in alcun modo ad Argo Software né al Ministero dell'Istruzione e del Merito. Controlla sempre nel registro che firme e appelli siano corretti.
 
@@ -54,7 +54,7 @@ L'estensione non è sul Chrome Web Store: si installa da una cartella, come "est
 
 ## Prima configurazione
 
-Le impostazioni si aprono dall'ingranaggio nel popup oppure con il **tasto destro sull'icona → Opzioni**. Ogni modifica viene salvata subito.
+Le impostazioni si aprono con un clic sull'icona quando sei già nel registro, oppure con il **tasto destro sull'icona → Opzioni**. Ogni modifica viene salvata subito.
 
 <img src="docs/img/impostazioni-accesso.png" alt="Impostazioni: scuola e accesso" width="760">
 
@@ -62,16 +62,17 @@ Le impostazioni si aprono dall'ingranaggio nel popup oppure con il **tasto destr
 2. **Entro con**: *SPID* oppure *CIE*.
 3. **Provider SPID**: lo stesso che scegli nella pagina del Ministero (Poste ID, Aruba ID, InfoCert ID, …). Con *"Scelgo ogni volta"* l'estensione apre l'elenco dei provider e lascia scegliere a te.
 4. **Accesso automatico**: con l'opzione attiva l'accesso parte appena si apre la pagina di accesso di Argo. Con l'opzione spenta parte solo quando premi l'icona.
-5. **Cognome e nome** (facoltativo): compare nel popup.
+5. **Cognome e nome** (facoltativo): scrivilo come compare nella colonna *Docente* del registro (es. `ROSSI MARIO`). *Firma ora* lo usa per riconoscere la tua riga nelle classi articolate e in compresenza, se DidUP non lo indica da solo.
 
 ## Uso quotidiano
 
 - **Per entrare nel registro**, premi l'icona dell'estensione da qualsiasi scheda. Si apre Argo, l'estensione fa tutti i passaggi e tu confermi l'accesso sull'app del provider (o con la CIE). Se il registro è già aperto, l'estensione ti porta a quella scheda; se la sessione è scaduta, rifà l'accesso.
-- **Dentro il registro**, la stessa icona apre il popup con **Firma ora** e **Appello**:
+- **Dentro il registro**, nella barra in alto accanto al pulsante di aiuto trovi due pulsanti rotondi: **Firma ora** (matita) e **Appello** (casella con la spunta). Passando sopra con il mouse compare la scritta di cosa fanno:
 
-<img src="docs/img/popup-registro.png" alt="Popup nel registro" width="320">
+<img src="docs/img/pulsanti-barra.png" alt="I pulsanti Firma ora e Appello nella barra di DidUP" width="580">
 
-La riga in basso indica se la sessione viene mantenuta attiva. Quando la sessione è scaduta, compare il pulsante **Accedi di nuovo**.
+- **L'icona dell'estensione**, quando sei già nel registro e la sessione è valida, apre le **Impostazioni**.
+- **Se la sessione scade**, nel registro compare un avviso con il pulsante **Accedi di nuovo**.
 
 ## Guida alle funzionalità
 
@@ -90,39 +91,56 @@ Se l'accesso non va a buon fine o lo annulli, per 90 secondi l'estensione non ri
 
 ### Firma ora
 
-Dal popup, da qualsiasi schermata del registro, **Firma ora**:
+Con il pulsante **Firma ora**, da qualsiasi schermata del registro, l'estensione:
 
 1. clicca **Home** nel menu a sinistra e legge le tue lezioni di oggi;
 2. legge gli **orari** dalla pagina: dai dati della Home oppure, se lì mancano, dalla tabella del registro di classe (es. *08:00 - 09:00*);
 3. sceglie la lezione **in corso**. Se non c'è, sceglie la **prossima più vicina**; se non ce ne sono più, l'**ultima passata non ancora firmata**;
-4. entra nel registro di quella classe e clicca l'icona arancione **"da firmare"**. Firma anche le altre tue ore consecutive nella stessa classe (es. 2ª e 3ª ora).
+4. entra nel registro di quella classe, cerca la **tua riga** di quell'ora e clicca la sua icona arancione **"da firmare"**. Firma anche le altre tue ore consecutive nella stessa classe (es. 2ª e 3ª ora).
+
+**Classi articolate e compresenze.** Nella stessa ora possono esserci più righe, una per docente. L'estensione firma solo la riga che è tua e ignora quelle dei colleghi, anche se sono già firmate. La riconosce, in quest'ordine:
+- dai dati di DidUP (il docente collegato);
+- dal **cognome e nome** nella colonna *Docente*;
+- dall'icona: quella arancione *da firmare* c'è solo sulle tue righe.
+
+Se la Home mostra l'ora in corso come già firmata, l'estensione controlla nel registro che la firma sia davvero tua. Se non lo è, firma la tua riga. I passi indicano di chi è ogni riga:
+
+<img src="docs/img/pannello-firma.png" alt="Passi di Firma ora in una classe articolata" width="560">
 
 **Quando ti chiede il permesso.** Se la fascia oraria dell'ora da firmare **contiene l'ora attuale**, la firma subito. Altrimenti, per esempio per la prossima lezione mentre sei in intervallo, ti chiede prima se procedere:
 
-<img src="docs/img/popup-domanda.png" alt="Richiesta di permesso per firmare un'ora non in corso" width="320">
+<img src="docs/img/pannello-domanda.png" alt="Richiesta di permesso per firmare un'ora non in corso" width="560">
 
 - Con **Firma lo stesso** la firma viene fatta.
 - Con **Non firmare** l'estensione non tocca nulla.
 - Se in un blocco di ore consecutive solo una è in corso, puoi scegliere di firmare solo quella.
-- Se chiudi il popup, la domanda compare in basso a destra nella pagina del registro.
+- Se chiudi il pannello senza rispondere, vale come **Non firmare**. Senza risposta, dopo 2 minuti non firma.
 
 **Cosa non fa mai:**
 - non clicca mai su un'ora **già firmata**, perché in DidUP quel clic serve a togliere la firma;
 - se stai modificando una lezione, non clicca *Home*, così non perdi il testo che stai scrivendo.
 
-Il popup mostra passo per passo cosa ha cliccato e perché ha scelto quella lezione:
-
-<img src="docs/img/popup-firma.png" alt="Passi di Firma ora" width="320">
+Sotto i pulsanti si apre un pannello che mostra passo per passo cosa è stato cliccato e perché è stata scelta quella lezione.
 
 ### Appello
 
-**Appello** clicca *Home* e sceglie la lezione più coerente con l'ora attuale. Per primo cerca quella **in corso**. Se non c'è, prende quella che **inizia entro 15 minuti**, poi quella **appena finita**, infine la prossima. Poi entra nel registro di quella classe e apre l'appello.
+Il pulsante **Appello** clicca *Home* e sceglie la lezione più coerente con l'ora attuale. Per primo cerca quella **in corso**. Se non c'è, prende quella che **inizia entro 15 minuti**, poi quella **appena finita**, infine la prossima. Poi entra nel registro di quella classe e apre l'appello.
 
 DidUP attiva il pulsante *Appello* solo quando l'ora è firmata da te, a meno che tu sia coordinatore o docente della classe. Se il pulsante è disattivato, l'estensione lo spiega:
 
-<img src="docs/img/popup-errore.png" alt="Messaggio di errore esplicito" width="320">
+<img src="docs/img/pannello-errore.png" alt="Messaggio di errore esplicito" width="560">
 
 Quando qualcosa non va, il passo in **rosso** dice esattamente cosa è stato cliccato e cosa non è stato trovato. Copialo se devi chiedere aiuto.
+
+### Aspetto e posizione dei pulsanti
+
+Nelle **Impostazioni → Pulsanti nel registro** scegli:
+- **dove** stanno i pulsanti nella barra: *a destra* (accanto al pulsante di aiuto, predefinito), *al centro* oppure *a sinistra* (dopo il nome della scuola);
+- **lo stile**: *Evidenziato* (viola, predefinito: si vede subito che è un pulsante dell'estensione), *Alto contrasto*, *Seppia*, *Chiaro*, *Scuro* oppure *Simil Argo*, che usa i colori di DidUP e si mimetizza con la pagina.
+
+L'anteprima accanto mostra subito il risultato. Lo stesso stile vale anche per il pulsante *Argomenti e compiti*. Le modifiche si vedono subito nel registro aperto, senza ricaricare la pagina.
+
+<img src="docs/img/impostazioni-pulsanti.png" alt="Impostazioni: pulsanti nel registro" width="760">
 
 ### Argomenti e compiti
 
@@ -158,22 +176,32 @@ In entrambi i casi va a capo come fa il pulsante "Argomenti" di Argo, e il testo
 
 <img src="docs/img/impostazioni-sessione.png" alt="Impostazioni della sessione" width="760">
 
-Mentre il registro è aperto, l'estensione fa ogni tanto una richiesta leggera e di sola lettura al server di Argo, con le stesse credenziali del registro, così la sessione non scade. Puoi scegliere l'intervallo, tra 30 e 3600 secondi; il consigliato è 240. In alternativa puoi scegliere **Ricarica la pagina**: ricarica la pagina solo se non la stai usando e non hai scritto nulla.
+DidUP usa due credenziali:
+- un **token di accesso**, che dura circa un'ora;
+- una **sessione sul server**, che si chiude se non riceve richieste.
+
+L'estensione le tiene vive entrambe con **un solo meccanismo**, senza nulla da scegliere. Ogni minuto controlla le schede del registro, **anche se sono in secondo piano** o in un'altra finestra:
+- rinnova il token **prima che scada**, con lo stesso comando che usa DidUP: la pagina non si ricarica e non perdi quello che stai scrivendo;
+- ogni 4 minuti fa una richiesta leggera e di sola lettura al server, con le stesse credenziali del registro.
+
+Ricaricare la pagina non servirebbe: DidUP rileggerebbe lo stesso token, che scade comunque dopo un'ora.
+
+La riga di stato sotto l'interruttore indica l'ultimo controllo, quando è stato rinnovato il token e quanto vale ancora. Se Argo rifiuta il rinnovo e chiede di nuovo SPID o CIE, la riga lo scrive e nel registro compare l'avviso **Accedi di nuovo**.
 
 ### Esporta / importa
 
 <img src="docs/img/impostazioni-backup.png" alt="Esporta e importa" width="760">
 
-**Esporta impostazioni** salva tutto in un file `.json`: codice scuola, accesso, sessione, discipline con argomenti e compiti. Ti serve per fare un backup o per passare le impostazioni su un altro computer. Quando **importi**, puoi scegliere se **sostituire** tutto oppure solo **aggiungere** argomenti e compiti a quelli che hai già.
+**Esporta impostazioni** salva tutto in un file `.json`: codice scuola, accesso, sessione, aspetto dei pulsanti, discipline con argomenti e compiti. Ti serve per fare un backup o per passare le impostazioni su un altro computer. Quando **importi**, puoi scegliere se **sostituire** tutto oppure solo **aggiungere** argomenti e compiti a quelli che hai già.
 
 ## Versione e informazioni
 
-In cima alle **Impostazioni**, accanto al nome, c'è la **versione** installata (es. `v1.0.1`). Ti serve quando chiedi aiuto o devi controllare di avere l'ultima versione: confrontala con quella dell'[ultima release](https://github.com/madxit/argo_didup_booster/releases/latest).
+In cima alle **Impostazioni**, accanto al nome, c'è la **versione** installata (es. `v1.1.0`). Ti serve quando chiedi aiuto o devi controllare di avere l'ultima versione: confrontala con quella dell'[ultima release](https://github.com/madxit/argo_didup_booster/releases/latest).
 
 ## Aggiornare l'estensione
 
 1. Scarica ed estrai l'[ultima release](https://github.com/madxit/argo_didup_booster/releases/latest) come al momento dell'installazione, poi copia **il contenuto** della cartella estratta nella **stessa cartella** usata per l'installazione (`argo_didup_booster`), sostituendo i file. Non caricare la nuova cartella come seconda estensione: le impostazioni non la seguirebbero.
-2. Premi l'icona dell'estensione oppure apri il popup o le Impostazioni. L'estensione si accorge che i file sono cambiati e **si ricarica da sola**, poi prosegue con quello che stavi facendo. Il popup, se era aperto, si chiude un attimo: riaprilo.
+2. Premi l'icona dell'estensione oppure apri le Impostazioni. L'estensione si accorge che i file sono cambiati e **si ricarica da sola**, poi prosegue con quello che stavi facendo. Nelle schede del registro già aperte i nuovi pulsanti compaiono da soli; se non li vedi, ricarica la pagina.
 3. Se non succede, vai su `chrome://extensions` e premi **Ricarica** (la freccia circolare) su *Argo DidUP Booster*.
 
 ## Problemi frequenti
@@ -184,11 +212,13 @@ In cima alle **Impostazioni**, accanto al nome, c'è la **versione** installata 
 | Si aprono le Impostazioni invece di Argo | Manca il **codice scuola**: inseriscilo. |
 | Nella pagina del Ministero non viene scelto il provider | Controlla di aver scelto il **Provider SPID** nelle Impostazioni. Con *"Scelgo ogni volta"* l'elenco viene aperto e scegli tu. |
 | «Accesso automatico in pausa» | L'ultimo tentativo non è andato a buon fine: premi **Riprova** o l'icona. |
+| *Firma ora* dice che non trova la tua riga | Nelle classi articolate l'estensione cerca la riga con il tuo nome. Scrivi **Cognome e nome** nelle Impostazioni come compare nella colonna *Docente* del registro. |
 | *Firma ora* ha scelto un'ora che non è in corso | Ti chiede sempre conferma: rispondi **Non firmare** se non è quella giusta. Controlla anche che l'ora del computer sia corretta. |
 | «Il pulsante Appello è disattivato» | In DidUP l'appello si apre dopo aver firmato l'ora: usa prima **Firma ora**. |
-| La sessione scade lo stesso | Riduci l'intervallo nelle Impostazioni o scegli **Ricarica la pagina**. Tieni aperta la scheda del registro. |
+| La sessione scade lo stesso | Leggi la riga di stato in *Impostazioni → Sessione*: dice se il rinnovo del token è stato rifiutato da Argo. Tieni aperta la scheda del registro e la *Modalità sviluppatore* attiva. |
+| Non vedo i pulsanti Firma e Appello | Compaiono nella barra in alto del registro dopo l'accesso. Se la barra è nascosta (schermata ingrandita) stanno in basso a destra. Prova a cambiare posizione nelle Impostazioni o a ricaricare la pagina. |
 | Il pulsante «Argomenti e compiti» non compare | Compare solo nella schermata di **modifica** di una lezione, accanto a *Registro di classe · Docenti ed alunni*. |
-| Un passo in rosso nel popup | Leggi cosa non è stato trovato e controlla di essere nel registro DidUP. Se DidUP è cambiato, segnala il messaggio. |
+| Un passo in rosso nel pannello | Leggi cosa non è stato trovato e controlla di essere nel registro DidUP. Se DidUP è cambiato, segnala il messaggio. |
 
 ## Privacy e permessi
 
@@ -197,7 +227,8 @@ In cima alle **Impostazioni**, accanto al nome, c'è la **versione** installata 
 - **Su quali siti lavora.** Agisce solo su `portaleargo.it` e su `eid.istruzione.it` (la pagina di accesso del Ministero).
 - **Permessi richiesti:**
   - `storage` per salvare le impostazioni;
-  - `scripting` e `activeTab` per Firma e Appello nella scheda del registro;
+  - `scripting` e `activeTab` per Firma, Appello e il mantenimento della sessione nella scheda del registro;
+  - `alarms` per il controllo della sessione ogni minuto;
   - `clipboardWrite` per copiare un argomento o un compito negli appunti quando non può essere inserito.
 
 ## Per chi sviluppa

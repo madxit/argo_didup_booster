@@ -20,7 +20,6 @@
   document.querySelectorAll(`span[${HOST_ATTR}], div[${HOST_ATTR}]`).forEach(el => el.remove());
   const isCurrent = () => document.documentElement.dataset.argoAssistantTopicsInstance === instanceId && extensionAlive();
   const STOPWORDS = new Set(['e', 'ed', 'di', 'del', 'della', 'dei', 'delle', 'degli', 'la', 'il', 'lo', 'le', 'gli', 'i', 'a', 'al', 'alla', 'in', 'per', 'con']);
-  const ICON_BOOK = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>';
 
   let settings = null;
   let picker = null;
@@ -128,17 +127,12 @@
     host.setAttribute(HOST_ATTR, 'button');
     host.style.cssText = 'display:inline-block;vertical-align:middle;margin-left:12px;';
     const root = host.attachShadow({ mode: 'open' });
+    // Stesso stile dei pulsanti «Firma ora» / «Appello» (impostazioni → Pulsanti nel registro).
     root.innerHTML = `
-      <style>
-        button { display: inline-flex; align-items: center; gap: 6px; padding: 3px 11px 3px 9px;
-                 border: 1px solid #b6d4e3; border-radius: 999px; background: #eef6fa; color: #0f6f94;
-                 font: 600 12px/1.6 system-ui, -apple-system, 'Segoe UI', sans-serif; font-style: normal;
-                 cursor: pointer; white-space: nowrap; }
-        button:hover { background: #dcedf5; border-color: #8fbfd6; }
-        button[aria-expanded="true"] { background: #0f6f94; border-color: #0f6f94; color: #fff; }
-      </style>
-      <button type="button" title="Inserisci uno dei tuoi argomenti o compiti (Argo DidUP Booster)" aria-haspopup="dialog" aria-expanded="false">
-        ${ICON_BOOK}<span>Argomenti e compiti</span>
+      <style>${boosterPillCss()}</style>
+      <style class="theme">:host { ${buttonThemeCss(settings.buttonsTheme)} }</style>
+      <button type="button" class="pill" title="Inserisci uno dei tuoi argomenti o compiti (Argo DidUP Booster)" aria-haspopup="dialog" aria-expanded="false">
+        ${BOOSTER_ICONS.book}<span>Argomenti e compiti</span>
       </button>`;
     const btn = root.querySelector('button');
     for (const type of ['mousedown', 'pointerdown', 'mouseup', 'keydown']) {
@@ -466,9 +460,15 @@
 
   chrome.storage.onChanged.addListener(async (changes, area) => {
     if (area !== 'local' || !isCurrent()) return;
-    if (changes.discipline || changes.argoDashboardPattern || changes.argoLoginUrl) {
+    if (changes.discipline || changes.argoDashboardPattern || changes.argoLoginUrl || changes.buttonsTheme) {
       settings = await loadSettings();
       if (picker) picker.refresh();
+      if (changes.buttonsTheme) {
+        document.querySelectorAll(`span[${HOST_ATTR}="button"]`).forEach(h => {
+          const st = h.shadowRoot && h.shadowRoot.querySelector('style.theme');
+          if (st) st.textContent = `:host { ${buttonThemeCss(settings.buttonsTheme)} }`;
+        });
+      }
       scan();
     }
   });

@@ -74,7 +74,7 @@ const server = http.createServer(async (req, res) => {
   }
   if (p === '/voti/') {
     if (!stats.loggedIn) { res.writeHead(302, { location: '/auth/sso/login/?login_challenge=abc' }); return res.end(); }
-    return html(res, REGISTRO + scripts(['page-bridge.js', 'mock-chrome.js', 'settings.js', 'content-common.js', 'login.js', 'keepalive.js', 'argomenti.js']));
+    return html(res, REGISTRO + scripts(['page-bridge.js', 'mock-chrome.js', 'settings.js', 'content-common.js', 'login.js', 'argomenti.js', 'azioni.js', 'toolbar.js']));
   }
   if (p === '/auth/sso/login/') {
     return html(res, `
@@ -85,7 +85,7 @@ const server = http.createServer(async (req, res) => {
         <a href="#" type="button" class="auth-button italia-it-button button-spid d-flex" onclick="event.preventDefault(); const form = document.getElementById('spidForm'); const sharedCheckbox = document.getElementById('shared_remember_me'); if(sharedCheckbox) document.getElementById('spid_remember_me').value = sharedCheckbox.checked ? 'true' : 'false'; form.submit();"><span class="italia-it-button-text">SPID - CIE - EIDAS</span></a>
       </form>
       <label><input type="checkbox" id="shared_remember_me"> Ricordami</label>` +
-      scripts(['page-bridge.js', 'mock-chrome.js', 'settings.js', 'content-common.js', 'login.js', 'keepalive.js', 'argomenti.js']));
+      scripts(['page-bridge.js', 'mock-chrome.js', 'settings.js', 'content-common.js', 'login.js', 'argomenti.js', 'azioni.js', 'toolbar.js']));
   }
   if (p === '/auth/eid-gateway/sso' && req.method === 'POST') {
     const body = new URLSearchParams(await readBody(req));
@@ -119,7 +119,7 @@ const server = http.createServer(async (req, res) => {
   if (p === '/api/archiviostampe/struttura') {
     stats.pings++;
     stats.pingHeaders = { auth: req.headers.authorization, sid: req.headers['x-auth-token'], method: req.method };
-    const ok = req.headers.authorization === 'Bearer tok-123' && req.headers['x-auth-token'] === 'sid-456' && !stats.expire;
+    const ok = ['Bearer tok-123', 'Bearer tok-new'].includes(req.headers.authorization) && req.headers['x-auth-token'] === 'sid-456' && !stats.expire;
     res.writeHead(ok ? 200 : 401, { 'content-type': 'application/json' });
     return res.end(ok ? '{"data":[]}' : '{"msg":"sessione scaduta"}');
   }
@@ -275,31 +275,57 @@ await evaluate(`localStorage.setItem('__mockStore', JSON.stringify(Object.assign
 await navigate(`${BASE}/auth/select/`, 1500);
 check(JSON.stringify(stats.identity) === '["SG18328"]', 'più profili Argo: scelto quello del codice scuola');
 
-// "Accedi ora" (messaggio dal popup)
+// "Accedi ora" (messaggio del service worker dopo il clic sull'icona)
 resetStats();
 await setStore({ ...base, autoLogin: false });
 await navigate(`${BASE}/voti/`, 1000);
 const reply = await evaluate(`return await new Promise(r => window.__listeners['runtime.onMessage'][0]({ type: 'argo-login-now' }, {}, r));`);
 await sleep(1800);
-check(reply && reply.ok && stats.eidPosts.length === 1, '"Accedi ora" dal popup avvia subito l\'accesso');
+check(reply && reply.ok && stats.eidPosts.length === 1, 'clic sull\'icona sulla pagina di accesso: l\'accesso parte subito');
 
 // ============ KEEP-ALIVE ============
-console.log('\n[Keep-alive] (timer accelerati 100x)');
+console.log('\n[Mantenimento della sessione]');
 resetStats();
 stats.loggedIn = true;
-await setStore({ ...base, keepAliveEnabled: true, keepAliveInterval: 30, keepAliveMethod: 'ping' }, `localStorage.setItem('__fastTimers', '1');`);
-await navigate(`${BASE}/voti/?classic`, 1500);
-s = await store();
-check(stats.pings >= 3, `ping sull'API autenticata: ${stats.pings} chiamate a archiviostampe/struttura`);
+await setStore({ ...base, ...URLS, keepAliveEnabled: true });
+await navigate(`${BASE}/voti/?classic`, 1200);
+// keepAliveInPage è la funzione che il service worker esegue nella pagina (mondo MAIN)
+const kaRun = (user, renewResult) => evaluate(`
+  window.importScripts = () => {};
+  if (typeof keepAliveInPage !== 'function') {
+    const sc = document.createElement('script'); sc.src = '/ext/background.js'; document.body.append(sc);
+    await new Promise(r => sc.onload = r);
+  }
+  window.__renewCalls = window.__renewCalls || 0;
+  let headers = window.Ext.Ajax.getDefaultHeaders();
+  window.Ext.Ajax.getDefaultHeaders = () => headers;
+  window.Ext.Ajax.setDefaultHeaders = h => { headers = h; };
+  window.WSX = { util: {
+    userManager: ${user ? `{ getUser: async () => (${JSON.stringify(user)}),
+      signinSilent: async () => { window.__renewCalls++; const r = ${JSON.stringify(renewResult || null)}; if (!r || r.error) throw new Error(r ? r.error : 'login_required'); return r; } }` : 'undefined'},
+    handleAuthSessionRenewed: u => { headers = Object.assign({}, headers, { Authorization: 'Bearer ' + u.access_token }); }
+  } };
+  if (window.__argoBoosterKa) window.__argoBoosterKa.lastRenewTry = 0;   // nel test un giro non dura un minuto
+  return await keepAliveInPage(240000, 600);`);
+let r = await kaRun({ expires_in: 3000, expired: false });
+check(r.state === 'ok' && r.pinged && !r.renewTried && stats.pings === 1, 'token ancora valido a lungo: solo la richiesta autenticata, nessun rinnovo');
 check(stats.pingHeaders && stats.pingHeaders.auth === 'Bearer tok-123' && stats.pingHeaders.sid === 'sid-456' && stats.pingHeaders.method === 'GET',
-  'il ping usa le credenziali dell\'app (Authorization + x-auth-token), metodo GET');
-check(s.keepAliveStatus && s.keepAliveStatus.ok && s.keepAliveStatus.action === 'ping', 'stato "sessione rinnovata" salvato');
+  'la richiesta usa le credenziali dell\'app (Authorization + x-auth-token), metodo GET');
+r = await kaRun({ expires_in: 3000, expired: false });
+check(!r.pinged && stats.pings === 1, 'meno di 4 minuti dopo: nessuna nuova richiesta');
+r = await kaRun({ expires_in: 420, expired: false }, { access_token: 'tok-new', expires_in: 3600 });
+check(r.renewed && r.expiresIn === 3600 && r.pinged && stats.pingHeaders.auth === 'Bearer tok-new',
+  'token in scadenza (7 min): rinnovato con il comando di DidUP (signinSilent) e usato subito', JSON.stringify(r));
+r = await kaRun({ expires_in: 300, expired: false }, { error: 'login_required' });
+check(!r.renewed && r.renewError === 'login_required' && r.state === 'ok', 'rinnovo rifiutato da Argo: errore registrato, sessione ancora valida finché il token dura', JSON.stringify(r));
 stats.expire = true;
-await sleep(800);
-const pingsAtExpire = stats.pings;
-await sleep(800);
-s = await store();
-check(s.keepAliveStatus.expired === true && stats.pings === pingsAtExpire, 'risposta 401: sessione scaduta rilevata, ping sospesi');
+r = await kaRun({ expires_in: -10, expired: true }, { error: 'login_required' });
+check(r.state === 'expired' && r.firstExpired, 'token scaduto e server che risponde 401: sessione scaduta (segnalata una volta)', JSON.stringify(r));
+r = await kaRun({ expires_in: -70, expired: true }, { error: 'login_required' });
+check(r.state === 'expired' && !r.firstExpired, '…e non la segnala di nuovo a ogni minuto');
+stats.expire = false;
+r = await kaRun(null);
+check(r.state === 'ok' && r.noOidc, 'senza il gestore del token (pagina diversa): solo la richiesta al server');
 stats.loggedIn = false;
 
 // ============ I MIEI ARGOMENTI NEL REGISTRO ============
@@ -381,55 +407,6 @@ await sleep(150);
 check(await evaluate(`return !document.querySelector('[data-argo-assistant-topics="picker"]')`), 'clic fuori dal pannello lo chiude');
 stats.loggedIn = false;
 
-// ============ POPUP ============
-console.log('\n[Popup]');
-await send('Emulation.setDeviceMetricsOverride', { width: 320, height: 420, deviceScaleFactor: 2, mobile: false });
-const popup = async (tabUrl, settingsObj, status) => {
-  await setStore({ ...settingsObj, ...(status ? { keepAliveStatus: status } : {}) },
-    `localStorage.setItem('__mockTab', JSON.stringify({ id: 7, url: ${JSON.stringify(tabUrl)} }));`);
-  await navigate(`${BASE}/ext/popup.html`, 500);
-};
-const def = { codiceScuola: 'SG18328', loginMethod: 'spid', spidProvider: 'posteid', autoLogin: true, docenteNome: 'MADDALUNO DANIELE', keepAliveEnabled: true, keepAliveInterval: 240 };
-
-await popup('https://www.portaleargo.it/voti/?classic', def, { time: Date.now(), ok: true, action: 'ping' });
-check(await evaluate(`return !document.getElementById('view-registro').hidden && document.getElementById('missing-code').hidden`), 'registro: riquadri Firma / Appello');
-check((await evaluate(`return document.getElementById('session-text').textContent`)).startsWith('Sessione attiva · rinnovata alle'), 'registro: stato sessione');
-await shot('16-popup-registro');
-await popup('https://www.portaleargo.it/voti/?classic', def, { time: Date.now(), ok: false, expired: true, action: 'ping' });
-check(await evaluate(`return document.getElementById('session-text').textContent === 'Sessione scaduta' && !document.getElementById('btn-relogin').hidden`), 'registro: sessione scaduta con "Accedi di nuovo"');
-await shot('16b-popup-sessione-scaduta');
-await evaluate(`window.__calls = []; document.getElementById('btn-relogin').click();`);
-await sleep(200);
-check((await evaluate(`return window.__calls`)).some(c => c[0] === 'tabs.update' && c[1] === 7 && c[2].url === 'https://www.portaleargo.it/voti/') && (await store()).loginFlow?.stage === 'argo', '"Accedi di nuovo" rifà l\'accesso nella scheda');
-await popup('https://www.portaleargo.it/voti/?classic', def, { time: Date.now(), ok: true, action: 'ping' });
-await evaluate(`document.getElementById('btn-appello').click();`);
-await sleep(3600);
-let pc = await evaluate(`return window.__calls`);
-check(pc.some(c => c[0] === 'tabs.connect' && c[1] === 7 && c[2].name === 'argo-azione') &&
-  pc.some(c => c[0] === 'executeScript' && (c[1].files || []).includes('azioni.js')) &&
-  (await evaluate(`return document.querySelector('#run-steps li.error')?.textContent || ''`)).includes('Non riesco a comunicare con la pagina'),
-  'Appello: si collega alla pagina (inietta gli script se mancano) e spiega se non risponde');
-
-await popup('https://www.portaleargo.it/voti/?classic', { ...def, docenteNome: '' });
-await evaluate(`document.getElementById('btn-firma').click();`);
-await sleep(200);
-check((await evaluate(`return window.__calls`)).some(c => c[0] === 'tabs.connect'), 'Firma senza nome docente: parte lo stesso (le tue ore si riconoscono dalle icone)');
-
-await popup('https://www.portaleargo.it/auth/sso/login/?login_challenge=x', def);
-check(await evaluate(`return !document.getElementById('view-login').hidden && document.getElementById('login-method').textContent`) === 'SPID · Poste ID', 'pagina di accesso: codice e metodo (SPID · Poste ID)');
-await shot('17-popup-login');
-await evaluate(`window.__tabsSendMessageReply = { ok: true }; document.getElementById('btn-login').click();`);
-await sleep(200);
-check((await evaluate(`return window.__calls`)).some(c => c[0] === 'tabs.sendMessage' && c[2].type === 'argo-login-now'), '"Accedi ora" chiede alla pagina di avviare l\'accesso');
-
-await popup('https://www.portaleargo.it/auth/sso/login/', { ...def, codiceScuola: '' });
-check(await evaluate(`return !document.getElementById('missing-code').hidden && document.getElementById('btn-login').disabled`), 'senza codice scuola: errore e "Accedi ora" disattivato');
-await shot('18-popup-senza-codice');
-
-await popup('https://example.com/', { ...def, loginMethod: 'cie' });
-check(await evaluate(`return !document.getElementById('view-out').hidden && document.getElementById('out-hint').textContent`) === 'Codice SG18328 · CIE', 'fuori da Argo (ripiego): "Apri il registro"');
-await send('Emulation.clearDeviceMetricsOverride');
-
 // ============ SERVICE WORKER ============
 console.log('\n[Service worker]');
 async function loadBackground(settingsObj, argoTabs) {
@@ -463,15 +440,16 @@ await evaluate(`window.__calls = []; await window.__listeners['action.onClicked'
 calls = await evaluate(`return window.__calls`);
 check(calls.some(c => c[0] === 'openOptionsPage') && !calls.some(c => c[0] === 'tabs.create'), 'senza codice scuola: apre le impostazioni');
 
-await evaluate(`window.__calls = [];
-  window.__listeners['tabs.onUpdated'][0](5, { status: 'loading', url: 'https://www.portaleargo.it/voti/' }, { id: 5, url: 'https://www.portaleargo.it/voti/' });
-  window.__listeners['tabs.onUpdated'][0](6, { status: 'loading' }, { id: 6 });`);
-await sleep(50);
-calls = await evaluate(`return window.__calls.filter(c => c[0] === 'action.setPopup')`);
-check(calls.some(c => c[1].tabId === 5 && c[1].popup === 'popup.html') && calls.some(c => c[1].tabId === 6 && c[1].popup === ''), 'popup solo sulle schede Argo, altrove il clic va al registro');
+await loadBackground({ codiceScuola: 'SG18328' }, [{ id: 5, windowId: 2, url: 'https://www.portaleargo.it/voti/?classic' }]);
+await evaluate(`window.__calls = []; await window.__listeners['runtime.onInstalled'][0]({ reason: 'update' });`);
+calls = await evaluate(`return window.__calls`);
+check(calls.some(c => c[0] === 'action.setPopup' && c[1].popup === '' && c[1].tabId === undefined) && calls.some(c => c[0] === 'action.setPopup' && c[1].tabId === 5 && c[1].popup === '') &&
+  calls.some(c => c[0] === 'alarms.create' && c[1] === 'argo-keepalive' && c[2].periodInMinutes === 1),
+  'dopo l\'aggiornamento: niente più popup (il clic va sempre al service worker) e allarme del mantenimento ogni minuto');
+check(calls.some(c => c[0] === 'executeScript' && (c[1].files || []).includes('toolbar.js')), 'registro già aperto: iniettati gli script con i nuovi pulsanti');
 
 // ============ v2.3 ============
-console.log('\n[v2.3 · registro già aperto, popup, ricarica automatica]');
+console.log('\n[Registro già aperto, clic sull\'icona, ricarica automatica]');
 await loadBackground({ codiceScuola: 'SG18328' }, [{ id: 31, windowId: 4, active: false, url: 'https://www.portaleargo.it/voti/?classic' }]);
 await evaluate(`window.__calls = []; window.__executeScriptReply = [{ result: 'expired' }]; await window.__listeners['action.onClicked'][0]({ id: 3 });`);
 calls = await evaluate(`return window.__calls`);
@@ -491,13 +469,39 @@ calls = await evaluate(`return window.__calls`);
 check(calls.some(c => c[0] === 'tabs.sendMessage' && c[1] === 33 && c[2].type === 'argo-login-now') && !calls.some(c => c[0] === 'tabs.update' || c[0] === 'tabs.create'),
   'clic sull\'icona sulla pagina di accesso: l\'accesso parte lì');
 
-await evaluate(`window.__calls = [];
-  window.__listeners['tabs.onUpdated'][0](8, { status: 'loading', url: 'https://www.portaleargo.it/auth/sso/login/?login_challenge=y' }, { id: 8, url: 'https://www.portaleargo.it/auth/sso/login/?login_challenge=y' });
-  window.__listeners['tabs.onUpdated'][0](9, { status: 'loading', url: 'https://www.portaleargo.it/voti/?classic' }, { id: 9, url: 'https://www.portaleargo.it/voti/?classic' });`);
-await sleep(80);
-calls = await evaluate(`return window.__calls.filter(c => c[0] === 'action.setPopup')`);
-check(calls.some(c => c[1].tabId === 8 && c[1].popup === '') && calls.some(c => c[1].tabId === 9 && c[1].popup === 'popup.html'),
-  'popup solo nel registro: sulla pagina di accesso il clic avvia l\'accesso');
+await loadBackground({ codiceScuola: 'SG18328' }, [{ id: 34, windowId: 4, url: 'https://www.portaleargo.it/voti/?classic' }]);
+await evaluate(`window.__calls = []; window.__executeScriptReply = [{ result: 'ok' }]; await window.__listeners['action.onClicked'][0]({ id: 34, windowId: 4, url: 'https://www.portaleargo.it/voti/?classic' });`);
+calls = await evaluate(`return window.__calls`);
+check(calls.some(c => c[0] === 'openOptionsPage') && !calls.some(c => c[0] === 'tabs.update' || c[0] === 'tabs.create'),
+  'clic sull\'icona dentro il registro con la sessione valida: apre le impostazioni');
+await evaluate(`window.__calls = []; window.__executeScriptReply = [{ result: 'expired' }]; await window.__listeners['action.onClicked'][0]({ id: 34, windowId: 4, url: 'https://www.portaleargo.it/voti/?classic' });`);
+calls = await evaluate(`return window.__calls`);
+check(!calls.some(c => c[0] === 'openOptionsPage') && calls.some(c => c[0] === 'tabs.update' && c[1] === 34 && c[2].url === 'https://www.portaleargo.it/voti/'),
+  '…con la sessione scaduta: rifà l\'accesso in quella scheda');
+
+// Mantenimento della sessione guidato dal service worker (anche con la scheda in secondo piano)
+await loadBackground({ codiceScuola: 'SG18328', keepAliveEnabled: true }, [{ id: 41, windowId: 4, active: false, autoDiscardable: true, url: 'https://www.portaleargo.it/voti/?classic' }]);
+await evaluate(`window.__calls = []; window.__executeScriptReply = [{ result: { state: 'ok', pinged: true, renewed: true, expiresIn: 3600, lastRenew: Date.now(), httpStatus: 200 } }];
+  window.__listeners['alarms.onAlarm'][0]({ name: 'argo-keepalive' }); await new Promise(r => setTimeout(r, 200));`);
+calls = await evaluate(`return window.__calls`);
+let ka = (await store()).keepAliveStatus;
+check(calls.some(c => c[0] === 'executeScript' && c[1].world === 'MAIN' && c[1].target.tabId === 41 && JSON.stringify(c[1].args) === '[240000,600]') &&
+  calls.some(c => c[0] === 'tabs.update' && c[1] === 41 && c[2].autoDiscardable === false),
+  'ogni minuto: controllo nella scheda del registro (anche non attiva), che Chrome non deve scaricare');
+check(ka && ka.ok && ka.action === 'renew' && ka.tokenExpiresAt > Date.now() + 3500e3, 'stato salvato: token rinnovato e nuova scadenza', JSON.stringify(ka));
+await evaluate(`window.__calls = []; window.__executeScriptReply = [{ result: { state: 'expired', firstExpired: true, pinged: true, httpStatus: 401, renewTried: true, renewError: 'login_required' } }];
+  window.__listeners['alarms.onAlarm'][0]({ name: 'argo-keepalive' }); await new Promise(r => setTimeout(r, 200));`);
+calls = await evaluate(`return window.__calls`);
+ka = (await store()).keepAliveStatus;
+check(ka.expired && /serve un nuovo accesso/.test(ka.renewError) && calls.some(c => c[0] === 'tabs.sendMessage' && c[1] === 41 && c[2].type === 'argo-session-expired'),
+  'sessione scaduta: stato con il motivo e avviso nella pagina del registro', JSON.stringify(ka));
+await setStore({ codiceScuola: 'SG18328', keepAliveEnabled: false }, `localStorage.setItem('__mockArgoTabs', JSON.stringify([{ id: 41, autoDiscardable: false, url: 'https://www.portaleargo.it/voti/?classic' }]));`);
+await navigate(`${BASE}/__blank`, 300);
+await evaluate(`window.importScripts = () => {};
+  for (const f of ['mock-chrome.js', 'settings.js', 'background.js']) { const sc = document.createElement('script'); sc.src = '/ext/' + f; document.body.append(sc); await new Promise(r => sc.onload = r); }
+  window.__calls = []; window.__listeners['alarms.onAlarm'][0]({ name: 'argo-keepalive' }); await new Promise(r => setTimeout(r, 200));`);
+calls = await evaluate(`return window.__calls`);
+check(!calls.some(c => c[0] === 'executeScript') && calls.some(c => c[0] === 'tabs.update' && c[2].autoDiscardable === true), 'mantenimento disattivato: nessun controllo, la scheda torna scaricabile');
 
 // SW riavviato dopo la ricarica automatica: completa l'azione richiesta, una volta sola
 await loadBackground({ codiceScuola: 'SG18328', selfReload: { from: '2.1', to: '2.3', at: Date.now(), after: { action: 'go-registro' } } }, []);
@@ -509,21 +513,17 @@ check(calls.some(c => c[0] === 'tabs.create' && c[1].url === 'https://www.portal
 await evaluate(`window.__calls = []; await window.__listeners['runtime.onInstalled'][0]({ reason: 'update' });`);
 check(!(await evaluate(`return window.__calls`)).some(c => c[0] === 'tabs.create'), '…e non lo rifà a ogni avvio');
 
-// popup aperto con l'estensione "vecchia" in memoria e file nuovi sul disco
-await setStore(def, `localStorage.setItem('__mockTab', JSON.stringify({ id: 7, url: 'https://example.com/' })); localStorage.setItem('__mockLoadedVersion', '2.1');`);
-await navigate(`${BASE}/ext/popup.html`, 500);
+// clic sull'icona con l'estensione "vecchia" in memoria e file nuovi sul disco
+await loadBackground({ codiceScuola: 'SG18328' }, []);
+await evaluate(`localStorage.setItem('__mockLoadedVersion', '1.0.1'); window.__calls = []; await window.__listeners['action.onClicked'][0]({ id: 7, url: 'https://www.portaleargo.it/voti/?classic' });`);
 calls = await evaluate(`return window.__calls`);
 st = await store();
-check(calls.some(c => c[0] === 'runtime.reload') && st.selfReload?.to === JSON.parse(fs.readFileSync(path.join(EXT, 'manifest.json'), 'utf8')).version && st.selfReload?.after?.action === 'go-registro',
-  'popup con versione vecchia in memoria: si ricarica da solo (poi apre il registro)');
-await navigate(`${BASE}/ext/popup.html`, 500);
-check(!(await evaluate(`return window.__calls`)).some(c => c[0] === 'runtime.reload') && await evaluate(`return !document.getElementById('view-out').hidden`),
-  'niente ricariche a ripetizione se la versione non cambia');
-await setStore(def, `localStorage.setItem('__mockTab', JSON.stringify({ id: 7, url: 'https://www.portaleargo.it/voti/?classic' })); localStorage.setItem('__mockLoadedVersion', '2.1');`);
-await navigate(`${BASE}/ext/popup.html`, 500);
-st = await store();
-check((await evaluate(`return window.__calls`)).some(c => c[0] === 'runtime.reload') && st.selfReload.after === null,
-  'dal registro: si ricarica senza aprire altre schede');
+check(calls.some(c => c[0] === 'runtime.reload') && st.selfReload?.to === JSON.parse(fs.readFileSync(path.join(EXT, 'manifest.json'), 'utf8')).version &&
+  st.selfReload?.after?.action === 'icon-click' && st.selfReload.after.tabId === 7 && !calls.some(c => c[0] === 'tabs.create'),
+  'clic sull\'icona con la versione vecchia in memoria: si ricarica da sola (poi ripete il clic)');
+await evaluate(`window.__calls = []; await window.__listeners['action.onClicked'][0]({ id: 7 });`);
+check(!(await evaluate(`return window.__calls`)).some(c => c[0] === 'runtime.reload'), 'niente ricariche a ripetizione se la versione non cambia');
+await evaluate(`localStorage.removeItem('__mockLoadedVersion')`);
 await setStore({ codiceScuola: 'SG18328' }, `localStorage.setItem('__mockLoadedVersion', '2.1');`);
 await navigate(`${BASE}/ext/options.html`, 500);
 st = await store();

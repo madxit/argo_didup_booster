@@ -15,7 +15,7 @@ const CHROME = CHROME_BIN;
 const PORT = 9341;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const MOCK = fs.readFileSync(path.join(ROOT, 'mock', 'didup-mock.html'), 'utf8');
-const APP_SCRIPTS = ['page-bridge.js', 'mock-chrome.js', 'settings.js', 'content-common.js', 'azioni.js'];
+const APP_SCRIPTS = ['page-bridge.js', 'mock-chrome.js', 'settings.js', 'content-common.js', 'azioni.js', 'toolbar.js'];
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
@@ -83,6 +83,10 @@ try {
   }
   await send('Page.enable');
   await send('Runtime.enable');
+  // Impostazioni del finto chrome.storage: il registro finto è servito da questo server.
+  const STORE = { schemaVersion: 1, argoDashboardPattern: `${BASE}/voti/`, argoLoginUrl: `${BASE}/auth/sso/login`, basePortalUrl: `${BASE}/voti/` };
+  await navigate(`${BASE}/voti/app?n=0`, 300);
+  await evaluate(`localStorage.setItem('__mockStore', ${JSON.stringify(JSON.stringify(STORE))})`);
 
   async function run(cfg, action, now, answers = []) {
     await navigate(`${BASE}/voti/app?n=${++navCount}#${encodeURIComponent(JSON.stringify(cfg))}`, 900);
@@ -172,7 +176,39 @@ try {
     '…e con il sì firma la prima ora da firmare', stepsText(res));
 
   res = await run({ signed: ['3A#1', '3A#2', '4B#3', '5C#5'] }, 'firma', '10:12');
-  check(res.r.ok && res.log.signClicks.length === 0 && /Tutte le tue lezioni di oggi risultano già firmate/.test(res.r.summary), 'tutto già firmato: lo dice e non clicca nulla', res.r.summary);
+  check(res.r.ok && res.log.signClicks.length === 0 && res.log.opened.join() === '4B#3' && /lezione in corso \(3ª ora · 4B · TPSIT \(10:00–11:00\)\) è già firmata da te \(MADDALUNO DANIELE\)/.test(res.r.summary),
+    'tutto già firmato: controlla nel registro che la firma dell\'ora in corso sia tua, non clicca nulla', res.r.summary + ' · ' + res.log.opened);
+  res = await run({ signed: ['3A#1', '3A#2', '4B#3', '5C#5'] }, 'firma', '14:00');
+  check(res.r.ok && res.log.signClicks.length === 0 && res.log.opened.length === 0 && /Tutte le tue lezioni di oggi risultano già firmate/.test(res.r.summary), 'tutto firmato e nessuna lezione in corso: lo dice senza aprire registri', res.r.summary);
+
+  console.log('\n[Classe articolata / compresenza: più docenti nella stessa ora]');
+  const ART = { articolata: { '4B': { 3: { docente: 'BIANCHI ANNA', materia: 'LABORATORIO', firmata: true } } } };
+  res = await run(ART, 'firma', '10:12');
+  check(res.r.ok && res.log.signClicks.join() === '4B#3' && res.log.otherClicks === 0 && res.log.unsignAttempts === 0 && /Firmata la 3ª ora · 4B/.test(res.r.summary),
+    'ora firmata dal collega prima della tua riga: firma la TUA riga (non la considera già firmata)', stepsText(res));
+  check(res.steps.some(s => /Nella 3ª ora di 4B ci sono 2 righe: BIANCHI ANNA \(firmata, di un altro docente\); MADDALUNO DANIELE \(da firmare, tua\)/.test(s)),
+    'i passi dicono di chi è ogni riga di quell\'ora', stepsText(res));
+  check(res.steps.some(s => /Cliccata l'icona arancione «da firmare» della 3ª ora \(riga di MADDALUNO DANIELE\)/.test(s)), 'il passo del clic indica la riga del docente', stepsText(res));
+
+  res = await run({ ...ART, homeFirmataDaAltri: true }, 'firma', '10:12');
+  check(res.r.ok && res.log.signClicks.join() === '4B#3' && res.steps.some(s => /La Home indica come già firmata la lezione in corso/.test(s)) &&
+    res.steps.some(s => /La tua riga della 3ª ora non è firmata: la firmo/.test(s)),
+    'la Home la mostra firmata per la firma del collega: lo verifica nel registro e firma la tua riga', stepsText(res));
+
+  res = await run({ ...ART, signed: ['4B#3'], homeFirmataDaAltri: true }, 'firma', '10:12');
+  check(res.r.ok && res.log.signClicks.length === 0 && /è già firmata da te \(MADDALUNO DANIELE\)/.test(res.r.summary), '…se anche la tua riga è firmata: non clicca nulla', res.r.summary);
+
+  res = await run({ ...ART, pk: false, docenteRiga: 'Maddaluno Daniele' }, 'firma', '10:12');
+  check(res.r.ok && res.log.signClicks.join() === '4B#3' && res.log.otherClicks === 0, 'senza i dati di DidUP sul docente: riconosce la riga da nome e cognome (maiuscole e ordine diversi)', stepsText(res));
+
+  res = await run({ ...ART, pk: false, utente: '', docenteRiga: 'MADDALUNO DANIELE' }, 'firma', '10:12');
+  check(res.r.ok && res.log.signClicks.join() === '4B#3', 'senza nome e senza dati: riconosce la riga dall\'icona («da firmare» solo sulle tue, «altro docente» sui colleghi)', stepsText(res));
+
+  res = await run({ ...ART, pk: false, utente: 'ROSSI MARIO' }, 'firma', '10:12');
+  check(!res.r.ok && res.log.signClicks.length === 0 && /non trovo la tua riga per la 3ª ora/.test(res.r.error) && /BIANCHI ANNA, MADDALUNO DANIELE/.test(res.r.error),
+    'nessuna riga con il tuo nome: non clicca nulla e dice quali docenti ha trovato', res.r.error);
+  p = await evaluate(`return [ArgoAzioni.sameName('ROSSI MARIO', 'Mario Rossi'), ArgoAzioni.sameName('ROSSI MARIO', 'ROSSI MARIO GIUSEPPE'), ArgoAzioni.sameName('ROSSI MARIO', 'ROSSI ANNA'), ArgoAzioni.sameName('ROSSI', 'ROSSI ANNA')]`);
+  check(JSON.stringify(p) === '[true,true,false,false]', 'confronto dei nomi: stesso nome in ordine diverso sì, altro docente con lo stesso cognome no', JSON.stringify(p));
 
   res = await run({ start: 'editing' }, 'firma', '10:12');
   check(!res.r.ok && res.log.homeClicks === 0 && /Stai modificando una lezione/.test(res.r.error), 'lezione in modifica: non clicca «Home» e spiega perché', res.r.error);
@@ -219,140 +255,84 @@ try {
     return { hits: window.__oldBridgeHits, state: r.state };`);
   check(oldBridge.hits === 0 && oldBridge.state === 'logged', 'il ponte vecchio rimasto nella pagina non riceve le nuove richieste (niente doppi inserimenti)', JSON.stringify(oldBridge));
 
-  console.log('\n[Collegamento popup ↔ pagina]');
-  const oneLesson = slot => `${BASE}/voti/app?n=${++navCount}#${encodeURIComponent(JSON.stringify({ classi: [{ classe: '3A', lezioni: [{ numOra: 2, materia: 'INFORMATICA' }] }], times: { 2: slot } }))}`;
-  const fakePort = `const port = { name: 'argo-azione', sent: [], msg: [], disc: [], postMessage(m) { this.sent.push(m); },
-      onMessage: { addListener(fn) { port.msg.push(fn); } }, onDisconnect: { addListener(fn) { port.disc.push(fn); } } };
-    window.__listeners['runtime.onConnect'][0](port);`;
-  await navigate(oneLesson(slotNow), 900);
-  let port = await evaluate(`${fakePort}
-    port.msg.forEach(fn => fn({ type: 'run', action: 'firma' }));
-    for (let i = 0; i < 80 && !port.sent.some(m => m.type === 'done'); i++) await new Promise(r => setTimeout(r, 100));
-    return port.sent;`);
-  check(port[0].type === 'ready' && port.some(m => m.type === 'step') && !port.some(m => m.type === 'ask') && port.at(-1).type === 'done' && port.at(-1).result.ok,
-    'ora in corso: la pagina risponde al popup (pronto → passi → esito) senza domande', JSON.stringify(port.map(m => m.type)));
-
-  await navigate(oneLesson(slotOther), 900);
-  port = await evaluate(`${fakePort}
-    port.msg.forEach(fn => fn({ type: 'run', action: 'firma' }));
-    for (let i = 0; i < 80 && !port.sent.some(m => m.type === 'ask'); i++) await new Promise(r => setTimeout(r, 100));
-    const ask = port.sent.find(m => m.type === 'ask');
-    const before = window.__didup.signClicks.length;
-    if (ask) port.msg.forEach(fn => fn({ type: 'answer', id: ask.id, ok: true }));
-    for (let i = 0; i < 80 && !port.sent.some(m => m.type === 'done'); i++) await new Promise(r => setTimeout(r, 100));
-    return { ask, before, after: window.__didup.signClicks.length, done: port.sent.at(-1) };`);
-  check(port.ask && /Vuoi firmarla lo stesso\?/.test(port.ask.question) && port.before === 0 && port.after === 1 && port.done.result.ok,
-    'ora fuori fascia: la domanda arriva al popup e la firma parte solo dopo il «sì»', JSON.stringify(port));
-
-  // popup chiuso durante l'operazione: domanda ed esito compaiono nella pagina
-  await navigate(oneLesson(slotOther), 900);
-  const pageAsk = await evaluate(`${fakePort}
-    port.msg.forEach(fn => fn({ type: 'run', action: 'firma' }));
-    await new Promise(r => setTimeout(r, 50));
-    port.disc.forEach(fn => fn());                              // l'utente chiude il popup
-    let btn = null;
-    for (let i = 0; i < 100 && !btn; i++) {
-      await new Promise(r => setTimeout(r, 100));
-      const h = document.querySelector('[data-argo-assistant="toast"]');
-      btn = h && [...h.shadowRoot.querySelectorAll('.actions button')].find(b => b.textContent === 'Firma lo stesso');
-    }
-    const question = btn ? document.querySelector('[data-argo-assistant="toast"]').shadowRoot.querySelector('.t').innerText : null;
-    const signedBefore = window.__didup.signClicks.length;
-    if (btn) btn.click();
-    for (let i = 0; i < 80 && window.__didup.signClicks.length === 0; i++) await new Promise(r => setTimeout(r, 100));
-    await new Promise(r => setTimeout(r, 900));
-    const h = document.querySelector('[data-argo-assistant="toast"]');
-    return { question, signedBefore, signed: window.__didup.signClicks.length, final: h ? h.shadowRoot.querySelector('.t').innerText : null };`);
-  check(pageAsk.question && /Vuoi firmarla lo stesso\?/.test(pageAsk.question) && pageAsk.signedBefore === 0,
-    'popup chiuso: la domanda compare nella pagina con i pulsanti «Firma lo stesso» / «Non firmare»', JSON.stringify(pageAsk));
-  check(pageAsk.signed === 1 && /Firmata la 2ª ora · 3A/.test(pageAsk.final || ''), '…clic su «Firma lo stesso»: firma e mostra l\'esito nella pagina', JSON.stringify(pageAsk));
-  await shot('22-azioni-toast-pagina');
-
   // ------------------------------------------------------------------
-  console.log('\n[Popup]');
-  await send('Emulation.setDeviceMetricsOverride', { width: 320, height: 560, deviceScaleFactor: 2, mobile: false });
-  const popupWith = async (script) => {
-    await navigate(`${BASE}/ext/popup.html?n=${++navCount}`, 200);
-    await evaluate(`localStorage.setItem('__mockStore', JSON.stringify({ schemaVersion: 1, codiceScuola: 'SG18328', docenteNome: 'MADDALUNO DANIELE', keepAliveEnabled: true }));
-      localStorage.setItem('__mockTab', JSON.stringify({ id: 7, url: 'https://www.portaleargo.it/voti/?classic' }));`);
-    await navigate(`${BASE}/ext/popup.html?n=${++navCount}`, 500);
-    await evaluate(script);
-  };
-  const fakePortScript = (steps, result, { failFirst = false } = {}) => `
-    let attempts = 0;
-    window.__makePort = () => {
-      attempts++;
-      const listeners = { msg: [], disc: [] };
-      const port = { onMessage: { addListener: fn => listeners.msg.push(fn), removeListener: fn => { listeners.msg = listeners.msg.filter(x => x !== fn); } },
-        onDisconnect: { addListener: fn => listeners.disc.push(fn) },
-        postMessage(m) {
-          if (m.type !== 'run') return;
-          const all = ${JSON.stringify(steps)};
-          all.forEach((s, i) => setTimeout(() => listeners.msg.forEach(fn => fn({ type: 'step', step: s })), 50 * (i + 1)));
-          setTimeout(() => listeners.msg.forEach(fn => fn({ type: 'done', result: ${JSON.stringify(result)} })), 50 * (all.length + 1));
-        } };
-      if (${failFirst} && attempts === 1) setTimeout(() => listeners.disc.forEach(fn => fn()), 10);
-      else setTimeout(() => listeners.msg.forEach(fn => fn({ type: 'ready' })), 10);
-      return port;
-    };
-    window.__attempts = () => attempts;
-    document.getElementById('btn-firma').click();
-    await new Promise(r => setTimeout(r, 700));`;
-  await popupWith(fakePortScript([
-    { text: 'Cliccato «Home» nel menu a sinistra', kind: 'ok' },
-    { text: 'Lezioni di oggi nella Home: 3A 1ª ✓, 3A 2ª, 4B 3ª', kind: 'ok' },
-    { text: 'Ora attuale 10:12 → lezione in corso: 3ª ora · 4B · TPSIT (10:00–11:00)', kind: 'ok' },
-    { text: 'Cliccato «3ª ora - TPSIT» della classe 4B nella Home', kind: 'ok' },
-    { text: 'Aperto il registro di classe 4B', kind: 'ok' },
-    { text: 'Cliccata l\'icona arancione «da firmare» della 3ª ora', kind: 'ok' },
-    { text: '3ª ora firmata', kind: 'ok' }
-  ], { ok: true, summary: 'Firmata la 3ª ora · 4B · TPSIT (10:00–11:00)' }));
-  let ui = await evaluate(`return { visible: !document.getElementById('run').hidden, cls: document.getElementById('run').className, steps: document.querySelectorAll('#run-steps li').length, result: document.getElementById('run-result').textContent }`);
-  check(ui.visible && ui.cls.includes('done') && ui.steps === 7 && ui.result.startsWith('Firmata la 3ª ora'), 'popup: elenco dei passi e riepilogo finale', JSON.stringify(ui));
-  await shot('23-popup-firma-ok');
+  console.log('\n[Pulsanti nella barra di DidUP]');
+  const oneLesson = slot => `${BASE}/voti/app?n=${++navCount}#${encodeURIComponent(JSON.stringify({ classi: [{ classe: '3A', lezioni: [{ numOra: 2, materia: 'INFORMATICA' }] }], times: { 2: slot } }))}`;
+  const tb = js => evaluate(`const host = document.querySelector('[data-argo-assistant="toolbar"]'); const root = host && host.shadowRoot;
+    const run = document.querySelector('[data-argo-assistant="run"]'); const pr = run && run.shadowRoot; ${js}`);
+  await navigate(oneLesson(slotNow), 1200);
+  let t = await tb(`const r = host.getBoundingClientRect(); const help = document.querySelector('#btnNews').getBoundingClientRect();
+    const hdr = document.querySelector('.header').getBoundingClientRect();
+    return { n: root.querySelectorAll('button.b').length, where: host.dataset.where, theme: host.dataset.theme, right: r.right, helpLeft: help.left,
+      midY: r.top + r.height / 2, hdrMid: hdr.top + hdr.height / 2, labels: [...root.querySelectorAll('button.b')].map(b => b.getAttribute('aria-label')),
+      tips: [...root.querySelectorAll('.tip')].map(x => x.textContent) };`);
+  check(t.n === 2 && t.labels.join('|') === 'Firma ora (Argo DidUP Booster)|Appello (Argo DidUP Booster)', 'due pulsanti rotondi «Firma ora» e «Appello» nella pagina', JSON.stringify(t));
+  check(t.where === 'right' && t.right <= t.helpLeft - 10 && t.right > t.helpLeft - 40 && Math.abs(t.midY - t.hdrMid) < 2, 'predefinito: a destra, accanto al pulsante di aiuto, centrati nella barra', JSON.stringify(t));
+  check(t.theme === 'vivid' && /Firma ora: la tua lezione/.test(t.tips[0]), 'stile predefinito «Evidenziato»; la scritta compare passando sopra', JSON.stringify(t));
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: Math.round(t.right - 60), y: Math.round(t.midY) });
+  await sleep(250);
+  t = await tb(`return getComputedStyle(root.querySelectorAll('.tip')[0]).opacity`);
+  check(t === '1', 'al passaggio del mouse la scritta è visibile', t);
+  await shot('26-pulsanti-barra');
+  await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 500 });
 
-  await popupWith(`
-    let answer = null;
-    window.__makePort = () => {
-      const listeners = { msg: [], disc: [] };
-      const port = { onMessage: { addListener: fn => listeners.msg.push(fn), removeListener: fn => { listeners.msg = listeners.msg.filter(x => x !== fn); } },
-        onDisconnect: { addListener: fn => listeners.disc.push(fn) },
-        postMessage(m) {
-          const emit = x => listeners.msg.forEach(fn => fn(x));
-          if (m.type === 'run') {
-            setTimeout(() => emit({ type: 'step', step: { text: 'Cliccato «Home» nel menu a sinistra', kind: 'ok' } }), 40);
-            setTimeout(() => emit({ type: 'step', step: { text: 'Ora attuale 11:20 → nessuna lezione in corso: la prossima più vicina: 5ª ora · 5C · SISTEMI E RETI (12:00–13:00)', kind: 'ok' } }), 80);
-            setTimeout(() => emit({ type: 'step', step: { text: 'Aperto il registro di classe 5C', kind: 'ok' } }), 120);
-            setTimeout(() => emit({ type: 'step', step: { text: 'Chiesto il permesso: la 5ª ora non è in corso', kind: 'ask' } }), 160);
-            setTimeout(() => emit({ type: 'ask', id: 'q1', question: 'La 5ª ora (12:00–13:00) · 5C · SISTEMI E RETI non è in corso: adesso sono le 11:20. Vuoi firmarla lo stesso?', confirmLabel: 'Firma lo stesso', cancelLabel: 'Non firmare' }), 200);
-          }
-          if (m.type === 'answer') { answer = m; setTimeout(() => emit({ type: 'done', result: { ok: true, summary: 'Firmata la 5ª ora · 5C · SISTEMI E RETI (12:00–13:00)' } }), 50); }
-        } };
-      setTimeout(() => listeners.msg.forEach(fn => fn({ type: 'ready' })), 10);
-      return port;
-    };
-    window.__answer = () => answer;
-    document.getElementById('btn-firma').click();
-    await new Promise(r => setTimeout(r, 600));`);
-  ui = await evaluate(`return { askVisible: !document.getElementById('run-ask').hidden, text: document.getElementById('run-ask-text').textContent, yes: document.getElementById('run-ask-yes').textContent, no: document.getElementById('run-ask-no').textContent, cls: document.getElementById('run').className }`);
-  check(ui.askVisible && /Vuoi firmarla lo stesso\?/.test(ui.text) && ui.yes === 'Firma lo stesso' && ui.no === 'Non firmare' && ui.cls.includes('asking'),
-    'popup: domanda con «Firma lo stesso» / «Non firmare»', JSON.stringify(ui));
-  await shot('25-popup-domanda');
-  await evaluate(`document.getElementById('run-ask-yes').click(); await new Promise(r => setTimeout(r, 300));`);
-  ui = await evaluate(`return { answer: window.__answer(), askHidden: document.getElementById('run-ask').hidden, result: document.getElementById('run-result').textContent }`);
-  check(ui.answer && ui.answer.id === 'q1' && ui.answer.ok === true && ui.askHidden && /Firmata la 5ª ora/.test(ui.result), 'popup: la risposta arriva alla pagina e compare l\'esito', JSON.stringify(ui));
+  await evaluate(`await chrome.storage.local.set({ buttonsPosition: 'left', buttonsTheme: 'argo' }); await new Promise(r => setTimeout(r, 300));`);
+  t = await tb(`const r = host.getBoundingClientRect(); const range = document.createRange(); range.selectNodeContents(document.getElementById('intestazioneId'));
+    return { where: host.dataset.where, theme: host.dataset.theme, left: r.left, textRight: range.getBoundingClientRect().right };`);
+  check(t.where === 'left' && t.theme === 'argo' && t.left >= t.textRight + 10 && t.left < t.textRight + 40, 'a sinistra (dopo il nome della scuola) e stile «Simil Argo» appena cambiati nelle impostazioni', JSON.stringify(t));
+  await evaluate(`await chrome.storage.local.set({ buttonsPosition: 'center' }); await new Promise(r => setTimeout(r, 300));`);
+  t = await tb(`const r = host.getBoundingClientRect(); return Math.abs((r.left + r.right) / 2 - innerWidth / 2);`);
+  check(t < 2, 'al centro della barra', t);
+  await evaluate(`await chrome.storage.local.set({ buttonsPosition: 'right', buttonsTheme: 'vivid' }); await new Promise(r => setTimeout(r, 200));`);
 
-  await popupWith(fakePortScript([
-    { text: 'Cliccato «Home» nel menu a sinistra', kind: 'ok' },
-    { text: 'Ora attuale 10:12 → lezione in corso: 3ª ora · 4B · TPSIT (10:00–11:00)', kind: 'ok' },
-    { text: 'Aperto il registro di classe 4B', kind: 'ok' },
-    { text: 'Il pulsante «Appello» è disattivato per la 3ª ora di 4B: DidUP lo attiva quando l\'ora è firmata da te. Firma prima con «Firma ora», poi riprova.', kind: 'error' }
-  ], { ok: false, error: 'Il pulsante «Appello» è disattivato…' }, { failFirst: true }));
-  ui = await evaluate(`return { cls: document.getElementById('run').className, last: [...document.querySelectorAll('#run-steps li')].pop().className, attempts: window.__attempts(), injected: window.__calls.filter(c => c[0] === 'executeScript').map(c => (c[1].files || []).join('+')) }`);
-  check(ui.cls.includes('failed') && ui.last === 'error', 'popup: errore in rosso con cosa è stato cliccato / non trovato', JSON.stringify(ui));
-  check(ui.attempts === 2 && ui.injected.join('|') === 'page-bridge.js|settings.js+content-common.js+azioni.js', 'pagina aperta prima dell\'aggiornamento: script iniettati al volo e nuovo tentativo', JSON.stringify(ui));
-  await shot('24-popup-errore');
-  await send('Emulation.clearDeviceMetricsOverride');
+  await tb(`root.querySelector('[data-action="firma"]').click();`);
+  t = await tb(`for (let i = 0; i < 80; i++) { await new Promise(r => setTimeout(r, 100)); if (pr && pr.querySelector('.result') && !pr.querySelector('.result').hidden) break; }
+    const p2 = document.querySelector('[data-argo-assistant="run"]').shadowRoot;
+    return { cls: p2.querySelector('.p').className, steps: [...p2.querySelectorAll('li')].map(l => l.textContent), result: p2.querySelector('.result').textContent, signed: window.__didup.signClicks.join() };`);
+  check(t.signed === '3A#2' && t.cls.includes('done') && /Firmata la 2ª ora · 3A/.test(t.result) && t.steps.some(s => /Cliccato «Home»/.test(s)),
+    'clic su «Firma ora»: pannello sotto i pulsanti con i passi e l\'esito', JSON.stringify(t));
+  await shot('27-pannello-firma');
+
+  await navigate(oneLesson(slotOther), 1200);
+  await tb(`root.querySelector('[data-action="firma"]').click();`);
+  t = await tb(`let p2 = null;
+    for (let i = 0; i < 80; i++) { await new Promise(r => setTimeout(r, 100)); p2 = document.querySelector('[data-argo-assistant="run"]')?.shadowRoot; if (p2 && !p2.querySelector('.askbox').hidden) break; }
+    const q = p2.querySelector('.q').textContent, yes = p2.querySelector('.yes').textContent, no = p2.querySelector('.no').textContent;
+    const before = window.__didup.signClicks.length;
+    return { q, yes, no, before, cls: p2.querySelector('.p').className };`);
+  check(/Vuoi firmarla lo stesso\?/.test(t.q) && t.yes === 'Firma lo stesso' && t.no === 'Non firmare' && t.before === 0 && t.cls.includes('asking'),
+    'ora fuori fascia: la domanda compare nel pannello e non firma prima della risposta', JSON.stringify(t));
+  await shot('28-pannello-domanda');
+  t = await tb(`pr.querySelector('.yes').click();
+    for (let i = 0; i < 80 && !window.__didup.signClicks.length; i++) await new Promise(r => setTimeout(r, 100));
+    await new Promise(r => setTimeout(r, 900));
+    return { signed: window.__didup.signClicks.join(), result: pr.querySelector('.result').textContent };`);
+  check(t.signed === '3A#2' && /Firmata la 2ª ora/.test(t.result), '…«Firma lo stesso»: firma e mostra l\'esito', JSON.stringify(t));
+
+  await navigate(oneLesson(slotOther), 1200);
+  await tb(`root.querySelector('[data-action="firma"]').click();`);
+  t = await tb(`let p2 = null;
+    for (let i = 0; i < 80; i++) { await new Promise(r => setTimeout(r, 100)); p2 = document.querySelector('[data-argo-assistant="run"]')?.shadowRoot; if (p2 && !p2.querySelector('.askbox').hidden) break; }
+    p2.querySelector('.x').click();
+    await new Promise(r => setTimeout(r, 800));
+    return { signed: window.__didup.signClicks.length, result: p2.querySelector('.result').textContent };`);
+  check(t.signed === 0 && /Non ho firmato nulla/.test(t.result), 'pannello chiuso durante la domanda: vale «no», non firma', JSON.stringify(t));
+
+  await navigate(`${BASE}/voti/app?n=${++navCount}`, 1200);
+  await tb(`root.querySelector('[data-action="appello"]').click();`);
+  t = await tb(`for (let i = 0; i < 80; i++) { await new Promise(r => setTimeout(r, 100)); if (pr && !pr.querySelector('.result').hidden) break; }
+    const p2 = document.querySelector('[data-argo-assistant="run"]').shadowRoot;
+    return { cls: p2.querySelector('.p').className, last: [...p2.querySelectorAll('li')].pop().className, text: [...p2.querySelectorAll('li')].pop().textContent };`);
+  check(t.cls.includes('failed') && t.last === 'error' && /Appello/.test(t.text), 'errore in rosso nel pannello (Appello su un\'ora non firmata)', JSON.stringify(t));
+  await shot('29-pannello-errore');
+
+  t = await evaluate(`window.__listeners['runtime.onMessage'].forEach(fn => fn({ type: 'argo-session-expired', text: 'Il server di Argo ha chiuso la sessione.' }, {}, () => {}));
+    await new Promise(r => setTimeout(r, 100));
+    const h = document.querySelector('[data-argo-assistant="toast"]');
+    const btn = h && [...h.shadowRoot.querySelectorAll('.actions button')].find(b => b.textContent === 'Accedi di nuovo');
+    window.__calls = []; if (btn) btn.click();
+    return { text: h ? h.shadowRoot.querySelector('.t').innerText : '', sent: window.__calls.filter(c => c[0] === 'sendMessage').map(c => c[1].type) };`);
+  check(/Sessione di Argo scaduta/.test(t.text) && t.sent.join() === 'relogin-tab', 'sessione scaduta: avviso nella pagina con «Accedi di nuovo» (rifà l\'accesso in quella scheda)', JSON.stringify(t));
 
   console.log('\nErrori JS in console:', consoleErrors.length ? consoleErrors : 'nessuno');
   if (consoleErrors.length) failures++;
