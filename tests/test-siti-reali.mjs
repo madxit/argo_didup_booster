@@ -99,8 +99,8 @@ if (!only || only === 'stale') await withBrowser(async b => {
   log('== 1. stale extension self-heals and then logs in (SPID · Poste ID)');
   const dir = freshCopy();
   const man = JSON.parse(readFileSync(join(dir, 'manifest.json'), 'utf8'));
-  const oldMan = { ...man, version: '2.1', action: { ...man.action, default_popup: 'popup.html' },
-    host_permissions: ['https://*.portaleargo.it/*'], content_scripts: man.content_scripts.slice(1, 2).map(c => ({ ...c, js: ['settings.js', 'keepalive.js'] })) };
+  const oldMan = { ...man, version: '2.1', permissions: man.permissions.filter(p => p !== 'alarms'),
+    host_permissions: ['https://*.portaleargo.it/*'], content_scripts: man.content_scripts.slice(1, 2).map(c => ({ ...c, js: ['settings.js'] })) };
   writeFileSync(join(dir, 'manifest.json'), JSON.stringify(oldMan, null, 2));
   // old service worker: knows nothing about 'go-registro' (like v2.1)
   const newBg = readFileSync(join(dir, 'background.js'), 'utf8');
@@ -113,11 +113,12 @@ if (!only || only === 'stale') await withBrowser(async b => {
   const v0 = await sw.ev('chrome.runtime.getManifest().version');
   check('old version running', v0 === '2.1', v0);
   await sw.ev(`chrome.storage.local.set(${JSON.stringify(SETTINGS())})`);
-  // The user clicks the icon: the (old) manifest opens popup.html (served from disk = new code).
-  const { targetId } = await b.send('Target.createTarget', { url: `chrome-extension://${id}/popup.html` });
-  await sleep(300);
-  const r = await followLogin(b, { stopAtHost: /poste\.it$/, shotPrefix: 'stale' });
+  // The user opens the settings page (served from disk = new code): it notices the stale version and reloads.
+  await b.send('Target.createTarget', { url: `chrome-extension://${id}/options.html` });
+  await sleep(2500);
   sw = await swSession(b, id);
+  const res = await sw.ev('goToRegistro({ id: -1, url: undefined })');
+  const r = await followLogin(b, { stopAtHost: /poste\.it$/, shotPrefix: 'stale' });
   const after = await sw.ev(`(async () => ({ v: chrome.runtime.getManifest().version, origins: (await chrome.permissions.getAll()).origins, selfReload: (await chrome.storage.local.get('selfReload')).selfReload }))()`);
   check('reloaded to the version on disk (' + man.version + ')', after.v === man.version, JSON.stringify(after.v));
   check('eid.istruzione.it permission granted', after.origins.includes('https://eid.istruzione.it/*'));

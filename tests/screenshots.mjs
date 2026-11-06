@@ -1,7 +1,8 @@
 // Rigenera le immagini del README (docs/img) con dati di fantasia:
 //   node tests/screenshots.mjs
-// Popup e impostazioni sono le pagine vere dell'estensione (con il finto chrome.*),
-// il registro è una pagina finta che imita la schermata di modifica della lezione.
+// Impostazioni e pulsanti sono quelli veri dell'estensione (con il finto chrome.*);
+// il registro è il DidUP finto dei test (tests/mock/didup-mock.html) e una pagina
+// finta che imita la schermata di modifica della lezione.
 import { spawn } from 'node:child_process';
 import http from 'node:http';
 import fs from 'node:fs';
@@ -9,6 +10,7 @@ import path from 'node:path';
 import { prepareMockExtension, workDir, killOnExit, CHROME, PROJECT } from './lib/prepare.mjs';
 
 const EXT = prepareMockExtension();
+const MOCK = fs.readFileSync(path.join(PROJECT, 'tests', 'mock', 'didup-mock.html'), 'utf8');
 const OUT = path.join(PROJECT, 'docs', 'img');
 fs.mkdirSync(OUT, { recursive: true });
 const PORT = 9343;
@@ -16,7 +18,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const SETTINGS = {
   schemaVersion: 1, codiceScuola: 'SG12345', docenteNome: 'ROSSI MARIO', loginMethod: 'spid', spidProvider: 'posteid',
-  autoLogin: true, keepAliveEnabled: true, keepAliveInterval: 240, keepAliveMethod: 'ping',
+  autoLogin: true, keepAliveEnabled: true, buttonsPosition: 'right', buttonsTheme: 'vivid',
   discipline: [
     { nome: 'Informatica', argomenti: ['Algoritmi e diagrammi di flusso', 'Variabili e tipi di dato', 'Strutture di selezione', 'Cicli for e while', 'Array e matrici'],
       compiti: ['Esercizi 1-5 pag. 32', 'Scrivere il diagramma di flusso del problema 3'] },
@@ -75,6 +77,11 @@ const server = http.createServer((req, res) => {
     return res.end(fs.readFileSync(file));
   }
   if (url.pathname === '/voti/') { res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }); return res.end(REGISTRO); }
+  if (url.pathname === '/voti/app') {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
+    return res.end(MOCK.replace('</body>', ['page-bridge.js', 'mock-chrome.js', 'settings.js', 'content-common.js', 'azioni.js', 'toolbar.js']
+      .map(f => `<script src="/ext/${f}"></script>`).join('') + '</body>'));
+  }
   res.writeHead(404); res.end();
 });
 await new Promise(r => server.listen(0, '127.0.0.1', r));
@@ -112,7 +119,8 @@ const evaluate = async expr => {
 let nav = 0;
 const navigate = async (url, wait = 500) => {
   const loaded = new Promise(r => { loadWaiters.push(r); setTimeout(r, 5000); });
-  await send('Page.navigate', { url: url + (url.includes('?') ? '&' : '?') + 'n=' + (++nav) });
+  const [base, hash = ''] = url.split(/(?=#)/);
+  await send('Page.navigate', { url: base + (base.includes('?') ? '&' : '?') + 'n=' + (++nav) + hash });
   await loaded;
   await sleep(wait);
 };
@@ -132,79 +140,72 @@ await send('Runtime.enable');
 
 const store = (settings, extra = '') => evaluate(`localStorage.clear(); localStorage.setItem('__mockStore', ${JSON.stringify(JSON.stringify(settings))}); ${extra}`);
 
-// ---------------- popup ----------------
-await send('Emulation.setDeviceMetricsOverride', { width: 320, height: 600, deviceScaleFactor: 2, mobile: false });
-async function popup(fakePort = null, after = 700) {
-  await navigate(`${BASE}/ext/popup.html`, 100);
-  await store({ ...SETTINGS, keepAliveStatus: { time: Date.now() - 60000, ok: true, action: 'ping', method: 'ping' } },
-    `localStorage.setItem('__mockTab', JSON.stringify({ id: 7, url: 'https://www.portaleargo.it/voti/?classic' }));`);
-  await navigate(`${BASE}/ext/popup.html`, 400);
-  if (fakePort) {
-    await evaluate(`window.__makePort = () => {
-      const l = { msg: [], disc: [] };
-      const emit = x => l.msg.forEach(fn => fn(x));
-      const port = { onMessage: { addListener: fn => l.msg.push(fn), removeListener: fn => { l.msg = l.msg.filter(x => x !== fn); } },
-        onDisconnect: { addListener: fn => l.disc.push(fn) },
-        postMessage(m) { if (m.type === 'run') ${JSON.stringify(fakePort)}.forEach((x, i) => setTimeout(() => emit(x), 30 * (i + 1))); } };
-      setTimeout(() => emit({ type: 'ready' }), 5);
-      return port;
-    }; document.getElementById(${JSON.stringify(fakePort.button || 'btn-firma')}).click();`);
-    await sleep(after);
-  }
-  // altezza reale del contenuto (il popup di Chrome si adatta)
-  // per la documentazione l'elenco dei passi si mostra per intero, dall'inizio
-  await evaluate(`document.querySelectorAll('.run-steps').forEach(l => { l.style.maxHeight = 'none'; }); window.scrollTo(0, 0);`);
-  await send('Emulation.setDeviceMetricsOverride', { width: 320, height: 200, deviceScaleFactor: 2, mobile: false });
-  await sleep(100);
-  const h = await evaluate(`return Math.ceil(Math.max(...[...document.body.children].filter(e => e.offsetParent || e.tagName === 'MAIN')
-    .map(e => e.getBoundingClientRect().bottom))) + 12`);
-  await send('Emulation.setDeviceMetricsOverride', { width: 320, height: Math.min(820, h), deviceScaleFactor: 2, mobile: false });
-  await sleep(150);
-  await evaluate(`window.scrollTo(0, 0)`);
+// ---------------- pulsanti nella barra di DidUP ----------------
+// Fuso orario emulato in cui sono circa le 10:10: la 3ª ora (4B) è in corso.
+const now = new Date();
+let tzOffset = (10 - now.getUTCHours() + 24) % 24;
+if (tzOffset > 14) tzOffset -= 24;
+await send('Emulation.setTimezoneOverride', { timezoneId: tzOffset === 0 ? 'Etc/GMT' : `Etc/GMT${tzOffset > 0 ? '-' : '+'}${Math.abs(tzOffset)}` });
+const nowMin = (now.getUTCHours() + tzOffset + 24) % 24 * 60 + now.getUTCMinutes();
+const hm = m => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+const times = {};
+for (let n = 1; n <= 5; n++) times[n] = `${hm(nowMin - 10 + (n - 3) * 60)} - ${hm(nowMin - 10 + (n - 2) * 60)}`;
+const DIDUP = { times, utente: 'ROSSI MARIO', docenteRiga: 'ROSSI MARIO',
+  classi: [{ classe: '3A', lezioni: [{ numOra: 1, materia: 'INFORMATICA' }, { numOra: 2, materia: 'INFORMATICA' }] },
+    { classe: '4B', lezioni: [{ numOra: 3, materia: 'TPSIT' }] }, { classe: '2C', lezioni: [{ numOra: 5, materia: 'INFORMATICA' }] }] };
+await send('Emulation.setDeviceMetricsOverride', { width: 1100, height: 640, deviceScaleFactor: 1.5, mobile: false });
+const didup = async cfg => {
+  await navigate(`${BASE}/voti/app`, 100);
+  await store({ ...SETTINGS, argoDashboardPattern: `${BASE}/voti/`, argoLoginUrl: `${BASE}/auth/sso/login`, basePortalUrl: `${BASE}/voti/` });
+  await navigate(`${BASE}/voti/app#${encodeURIComponent(JSON.stringify({ ...DIDUP, ...cfg }))}`, 1300);
+};
+const tb = js => evaluate(`const root = document.querySelector('[data-argo-assistant="toolbar"]').shadowRoot; ${js}`);
+// ritaglio: dalla barra in alto fino al pannello dei passi
+async function shotPanel(name) {
+  const r = await evaluate(`const t = document.querySelector('[data-argo-assistant="toolbar"]').getBoundingClientRect();
+    const p = document.querySelector('[data-argo-assistant="run"]').shadowRoot.querySelector('.p').getBoundingClientRect();
+    return { x: Math.min(t.left, p.left) - 16, y: 0, w: Math.max(t.right, p.right) - Math.min(t.left, p.left) + 32 + 140, h: p.bottom + 16 };`);
+  const { data } = await send('Page.captureScreenshot', { format: 'png', clip: { x: Math.max(0, r.x), y: 0, width: Math.min(r.w, 1100 - Math.max(0, r.x)), height: r.h, scale: 1 } });
+  fs.writeFileSync(path.join(OUT, name), Buffer.from(data, 'base64'));
+  console.log('  ✔', path.join('docs', 'img', name));
 }
-const step = (text, kind = 'ok') => ({ type: 'step', step: { text, kind } });
+const waitResult = (answer = null) => evaluate(`for (let i = 0; i < 100; i++) {
+    await new Promise(r => setTimeout(r, 100));
+    const run = document.querySelector('[data-argo-assistant="run"]'); if (!run) continue;
+    const ask = run.shadowRoot.querySelector('.askbox');
+    if (${JSON.stringify(answer)} === 'stop' && ask && !ask.hidden) return;
+    const res = run.shadowRoot.querySelector('.result'); if (res && !res.hidden) return;
+  }`);
 
-await popup();
-await shot('popup-registro.png');
+await didup({});
+const pos = await tb(`const r = root.host.getBoundingClientRect(); return { x: r.left + 18, y: r.top + 18 };`);
+await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: Math.round(pos.x), y: Math.round(pos.y) });
+await sleep(300);
+{
+  const { data } = await send('Page.captureScreenshot', { format: 'png', clip: { x: 520, y: 0, width: 580, height: 110, scale: 1 } });
+  fs.writeFileSync(path.join(OUT, 'pulsanti-barra.png'), Buffer.from(data, 'base64'));
+  console.log('  ✔', path.join('docs', 'img', 'pulsanti-barra.png'));
+}
+await send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 5, y: 600 });
 
-const firmaOk = [
-  step('Cliccato «Home» nel menu a sinistra'),
-  step('Lezioni di oggi nella Home: 3A 1ª ✓, 3A 2ª ✓, 4B 3ª, 2C 5ª'),
-  step('Ora attuale 10:12 → lezione in corso: 3ª ora · 4B · TPSIT (10:00–11:00)'),
-  step('Cliccato «3ª ora - TPSIT» della classe 4B nella Home'),
-  step('Aperto il registro di classe 4B'),
-  step('Cliccata l\'icona arancione «da firmare» della 3ª ora'),
-  step('3ª ora firmata'),
-  { type: 'done', result: { ok: true, summary: 'Firmata la 3ª ora · 4B · TPSIT (10:00–11:00)' } }
-];
-await popup(firmaOk, 600);
-await shot('popup-firma.png');
+// Firma in una classe articolata: il collega ha già firmato la sua riga della stessa ora
+await didup({ articolata: { '4B': { 3: { docente: 'BIANCHI ANNA', materia: 'LABORATORIO', firmata: true } } }, signed: ['3A#1', '3A#2'] });
+await tb(`root.querySelector('[data-action="firma"]').click()`);
+await waitResult();
+await shotPanel('pannello-firma.png');
 
-const domanda = [
-  step('Cliccato «Home» nel menu a sinistra'),
-  step('Lezioni di oggi nella Home: 3A 1ª ✓, 3A 2ª ✓, 4B 3ª ✓, 2C 5ª'),
-  step('Ora attuale 11:20 → nessuna lezione in corso: la prossima più vicina: 5ª ora · 2C · INFORMATICA (12:00–13:00)'),
-  step('Cliccato «5ª ora - INFORMATICA» della classe 2C nella Home'),
-  step('Aperto il registro di classe 2C'),
-  step('Chiesto il permesso: la 5ª non è in corso (adesso sono le 11:20)', 'ask'),
-  { type: 'ask', id: 'q', question: 'La 5ª ora (12:00–13:00) · 2C · INFORMATICA non è in corso: adesso sono le 11:20. Vuoi firmarla lo stesso?', confirmLabel: 'Firma lo stesso', cancelLabel: 'Non firmare' }
-];
-await popup(domanda, 600);
-await shot('popup-domanda.png');
+// Prossima lezione non ancora iniziata: chiede il permesso
+await didup({ signed: ['3A#1', '3A#2', '4B#3'], times: { ...times, 3: `${hm(nowMin - 70)} - ${hm(nowMin - 10)}`, 4: `${hm(nowMin - 10)} - ${hm(nowMin + 20)}`, 5: `${hm(nowMin + 20)} - ${hm(nowMin + 80)}` } });
+await tb(`root.querySelector('[data-action="firma"]').click()`);
+await waitResult('stop');
+await shotPanel('pannello-domanda.png');
 
-const errore = [
-  step('Cliccato «Home» nel menu a sinistra'),
-  step('Lezioni di oggi nella Home: 3A 1ª, 3A 2ª, 4B 3ª, 2C 5ª'),
-  step('Ora attuale 10:12 → lezione in corso: 3ª ora · 4B · TPSIT (10:00–11:00)'),
-  step('Cliccato «3ª ora - TPSIT» della classe 4B nella Home'),
-  step('Aperto il registro di classe 4B'),
-  step('Il pulsante «Appello» è disattivato per la 3ª ora di 4B: DidUP lo attiva quando l\'ora è firmata da te. Firma prima con «Firma ora», poi riprova.', 'error'),
-  { type: 'done', result: { ok: false, error: 'Il pulsante «Appello» è disattivato…' } }
-];
-errore.button = 'btn-appello';
-await popup(Object.assign(errore, { button: 'btn-appello' }), 500);
-await evaluate(`document.getElementById('run-title').textContent = 'Appello'`);
-await shot('popup-errore.png');
+// Appello su un'ora non firmata: errore in rosso
+await didup({ signed: ['3A#1', '3A#2'] });
+await tb(`root.querySelector('[data-action="appello"]').click()`);
+await waitResult();
+await shotPanel('pannello-errore.png');
+await send('Emulation.clearTimezoneOverride').catch(() => send('Emulation.setTimezoneOverride', { timezoneId: '' }));
 
 // ---------------- impostazioni ----------------
 await send('Emulation.setDeviceMetricsOverride', { width: 980, height: 1200, deviceScaleFactor: 1.5, mobile: false });
@@ -213,6 +214,7 @@ await store(SETTINGS);
 await navigate(`${BASE}/ext/options.html`, 700);
 await shot('impostazioni-accesso.png', '#sec-scuola', 6);
 await shot('impostazioni-sessione.png', '#sec-sessione', 6);
+await shot('impostazioni-pulsanti.png', '#sec-pulsanti', 6);
 await evaluate(`document.querySelectorAll('#discipline-list li')[1].click()`);
 await sleep(300);
 await shot('impostazioni-argomenti.png', '#sec-argomenti', 6);

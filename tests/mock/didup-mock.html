@@ -1,7 +1,11 @@
 <!DOCTYPE html>
 <html lang="it"><head><meta charset="utf-8"><title>DidUP finto</title>
 <style>
-  body { font: 13px system-ui, sans-serif; margin: 0; display: flex; }
+  body { font: 13px system-ui, sans-serif; margin: 0; display: flex; padding-top: 58px; }
+  .header { position: fixed; top: 0; left: 0; right: 0; height: 58px; display: flex; align-items: center; gap: 14px; padding: 0 16px; background: #fff; border-bottom: 1px solid #ddd; box-sizing: border-box; }
+  .logo_programma { width: 90px; height: 30px; background: #11799c; }
+  #intestazioneId { font-weight: 600; color: #234e66; }
+  .header .right { margin-left: auto; display: flex; gap: 20px; align-items: center; }
   #menu { width: 200px; background: #234e66; color: #fff; min-height: 100vh; }
   .x-treelist-root-container, .x-treelist-container { list-style: none; margin: 0; padding: 0; }
   .x-treelist-row { padding: 10px 14px; cursor: pointer; }
@@ -18,6 +22,9 @@
   .x-message-box { position: fixed; top: 100px; left: 300px; background: #fff; border: 2px solid #c00; padding: 20px; }
 </style></head>
 <body>
+<div class="x-panel header" id="headerpnl-1"><div class="header-sub-div"><div class="logo_programma cursor-pointer"></div><div class="intestazione" id="intestazioneId">ITT di prova</div></div>
+  <div class="right"><a class="x-btn" id="btnNews"><span class="x-btn-inner"><img height="34" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='34'%3E%3Ccircle cx='17' cy='17' r='16' fill='%2311799c'/%3E%3C/svg%3E#help2.png"></span></a>
+  <a class="x-btn btn-profile" id="btnProfile"><span class="x-btn-inner">Profilo</span></a></div></div>
 <div id="menu" class="x-treelist x-treelist-nav"></div>
 <div id="desktop"></div>
 <script>
@@ -30,11 +37,14 @@
     ],
     times: { 1: '08:00 - 09:00', 2: '09:00 - 10:00', 3: '10:00 - 11:00', 4: '11:00 - 12:00', 5: '12:00 - 13:00' },
     signed: [], timesInDashboard: true, timesInRegistro: true, classeDocente: false,
-    homeMenu: true, homeClickBroken: false, iconCls: null, start: 'home', delay: 250
+    homeMenu: true, homeClickBroken: false, iconCls: null, start: 'home', delay: 250,
+    // classe articolata / compresenza: { "5C": { "5": { docente: "BIANCHI ANNA", firmata: true } } } → riga del collega prima della tua
+    articolata: {}, homeFirmataDaAltri: false,
+    utente: 'MADDALUNO DANIELE', docenteRiga: 'MADDALUNO DANIELE', pk: true
   };
   const cfg = Object.assign({}, DEFAULT, JSON.parse(decodeURIComponent(location.hash.slice(1) || '%7B%7D')));
   const signed = new Set(cfg.signed);
-  const log = window.__didup = { homeClicks: 0, apiHome: 0, signClicks: [], unsignAttempts: 0, opened: [], appelloOpened: 0, cfg };
+  const log = window.__didup = { homeClicks: 0, apiHome: 0, signClicks: [], unsignAttempts: 0, otherClicks: 0, opened: [], appelloOpened: 0, cfg };
   let seq = 1000;
   const nextId = x => `${x}-${++seq}`;
   const $d = document.getElementById('desktop');
@@ -72,9 +82,17 @@
 
   // ---- Home ----
   const iconFor = (classe, n) => cfg.iconCls || (signed.has(`${classe}#${n}`) ? 'icon-ora-firmata' : 'icon-ora-da-firmare');
-  function renderIconaFirma(cls, n, customId) {
+  const coDoc = (classe, n) => (cfg.articolata[classe] || {})[n] || null;
+  // Home: con homeFirmataDaAltri l'ora risulta firmata anche se l'ha firmata solo il collega.
+  const homeIconFor = (classe, n) => cfg.iconCls || ((signed.has(`${classe}#${n}`) || (cfg.homeFirmataDaAltri && coDoc(classe, n) && coDoc(classe, n).firmata)) ? 'icon-ora-firmata' : 'icon-ora-da-firmare');
+  // Testi dell'icona come in renderIconaFirma di DidUP.
+  function ariaFor(cls, n, mine) {
+    if (mine) return cls === 'icon-ora-firmata' ? `${n}° ora Firmata. Clicca per eliminare la firma` : `${n}° ora non Firmata. Clicca per firmare`;
+    return `${n}° ora ${cls === 'icon-ora-firmata' ? 'firmata da ' : 'prevista per '} un altro docente. Riga non modificabile, ma puoi aggiungere una tua lezione premendo sul pulsante +.`;
+  }
+  function renderIconaFirma(cls, n, customId, mine = true) {
     return `<div class="div-flex-vcentered content-centered flex-wrap"><span role="button" aria-label="1" class="iconora-stack argo-orange-color cursor-pointer fontSize-5">
-      <span ${customId ? `id = "${customId}"` : ''} class="icon ${cls} iconora-stack-main" aria-label="${n}° ora" data-qtip="" data-iconora="${n}"></span></span></div>`;
+      <span ${customId ? `id = "${customId}"` : ''} class="icon ${cls} iconora-stack-main" aria-label="${ariaFor(cls, n, mine)}" data-qtip="" data-iconora="${n}"></span></span></div>`;
   }
   function cleanDesktopAndShowHome() {
     destroyAll();
@@ -90,7 +108,7 @@
           <a class="x-btn" role="button"><span class="x-btn-inner"><span class="whiteSpace fontWeight-normal">INFORMATICA E TELECOMUNICAZIONI</span></span></a>
           <div class="x-panel"><div class="x-panel-body">` + c.lezioni.map((l, idx) => {
             const id = `ora_${l.numOra}_${idx}`;
-            return `<div class="dashboard-lezione-materia dashboard-lezione-col">${renderIconaFirma(iconFor(c.classe, l.numOra), l.numOra, id)}<span id='${id}' style='cursor:pointer;' role='button' aria-label='${l.numOra}' title='vai al registro di classe ora ${l.numOra} - ${l.materia}'></span><span id='${id}' style='color:#f8b133;cursor:pointer' title='vai al registro di classe ora ${l.numOra} - ${l.materia}'>${l.materia}</span></div>`;
+            return `<div class="dashboard-lezione-materia dashboard-lezione-col">${renderIconaFirma(homeIconFor(c.classe, l.numOra), l.numOra, id)}<span id='${id}' style='cursor:pointer;' role='button' aria-label='${l.numOra}' title='vai al registro di classe ora ${l.numOra} - ${l.materia}'></span><span id='${id}' style='color:#f8b133;cursor:pointer' title='vai al registro di classe ora ${l.numOra} - ${l.materia}'>${l.materia}</span></div>`;
           }).join('') + `</div></div></div>`;
         card.addEventListener('click', e => {         // Ext: delegate span[id^=ora_]
           const t = e.target.closest('span[id^="ora_"]');
@@ -112,15 +130,27 @@
     const mine = myLesson(stato.classe, stato.numOra);
     return cfg.classeDocente || Boolean(mine && signed.has(`${stato.classe}#${stato.numOra}`));
   }
-  function renderGrid(grid) {
-    grid.querySelector('.x-grid-view').innerHTML = [1, 2, 3, 4, 5].map(n => {
+  // Righe del registro: per ogni ora l'eventuale collega (classe articolata) e poi la tua lezione.
+  function gridRows() {
+    const rows = [];
+    for (const n of [1, 2, 3, 4, 5]) {
+      const co = coDoc(stato.classe, n);
       const mine = myLesson(stato.classe, n);
-      const cls = mine ? iconFor(stato.classe, n) : 'icon-ora-plus';
+      if (co) rows.push({ numOra: n, mine: false, docente: co.docente, materia: co.materia || 'ITALIANO', firmata: Boolean(co.firmata) });
+      if (mine) rows.push({ numOra: n, mine: true, docente: cfg.docenteRiga, materia: mine.materia, firmata: signed.has(`${stato.classe}#${n}`) });
+      if (!co && !mine) rows.push({ numOra: n, mine: false, docente: 'BIANCHI ANNA', materia: 'ITALIANO', firmata: false });
+    }
+    return rows;
+  }
+  function renderGrid(grid) {
+    grid.querySelector('.x-grid-view').innerHTML = gridRows().map((r, i) => {
+      const n = r.numOra;
+      const cls = r.mine ? (cfg.iconCls || (r.firmata ? 'icon-ora-firmata' : 'icon-ora-da-firmare')) : (r.firmata ? 'icon-ora-firmata' : 'icon-ora-plus');
       const time = cfg.timesInRegistro && cfg.times[n] ? `<span class = "flex-basis-100 mt-2"><div>${cfg.times[n]}</div></span>` : '';
-      return `<table class="x-grid-item" data-recordindex="${n - 1}"><tbody><tr class="x-grid-row">
-        <td class="x-grid-cell"><div class="x-grid-cell-inner">${renderIconaFirma(cls, n).replace('</div>', time + '</div>')}</div></td>
-        <td class="x-grid-cell"><div class="x-grid-cell-inner">${mine ? 'MADDALUNO DANIELE' : 'BIANCHI ANNA'}</div></td>
-        <td class="x-grid-cell"><div class="x-grid-cell-inner">${mine ? mine.materia : 'ITALIANO'}</div></td></tr></tbody></table>`;
+      return `<table class="x-grid-item" data-recordindex="${i}"><tbody><tr class="x-grid-row">
+        <td class="x-grid-cell x-grid-cell-col-firma"><div class="x-grid-cell-inner">${renderIconaFirma(cls, n, null, r.mine).replace('</div>', time + '</div>')}</div></td>
+        <td class="x-grid-cell x-grid-cell-col-docente"><div class="x-grid-cell-inner">${r.docente}</div></td>
+        <td class="x-grid-cell x-grid-cell-col-materia"><div class="x-grid-cell-inner">${r.materia}</div></td></tr></tbody></table>`;
     }).join('');
     const btn = views.registro.querySelector('.menu-registro-appello');
     const on = appelloEnabled();
@@ -139,7 +169,11 @@
           <a class="base-registri-menu-button menu-registro-giornale-classe" role="button"><span class="x-btn-inner">Giornale di classe</span></a>
           <a class="base-registri-menu-button menu-registro-appello" role="button"><span class="x-btn-inner">Appello</span></a>
           <a class="base-registri-menu-button menu-registro-note" role="button"><span class="x-btn-inner">Note</span></a></div>
-        <div class="x-grid" id="${nextId('gridpanel')}"><div class="x-grid-view"></div></div></div>`;
+        <div class="x-grid" id="${nextId('gridpanel')}"><div class="x-grid-header-ct">
+          <div class="x-column-header" id="col-firma"><span class="x-column-header-text">FIRMA</span></div>
+          <div class="x-column-header" id="col-docente"><span class="x-column-header-text">Docente</span></div>
+          <div class="x-column-header" id="col-materia"><span class="x-column-header-text">Materia</span></div></div>
+          <div class="x-grid-view"></div></div></div>`;
       $d.appendChild(v);
       views.registro = v;
       const grid = v.querySelector('.x-grid');
@@ -147,9 +181,11 @@
       grid.addEventListener('click', e => {             // Ext: cellclick → onAttivitaSelectedClassic
         const td = e.target.closest('td'); const row = e.target.closest('.x-grid-item');
         if (!td || !row) return;
-        const cellIndex = [...row.querySelectorAll('td')].indexOf(td) + 1;   // colonna ORA nascosta = 0
-        const n = Number(row.dataset.recordindex) + 1;
-        if (cellIndex !== 1 || !myLesson(stato.classe, n)) return;
+        if (!td.classList.contains('x-grid-cell-col-firma')) return;
+        const r = gridRows()[Number(row.dataset.recordindex)];
+        if (!r) return;
+        const n = r.numOra;
+        if (!r.mine) { log.otherClicks++; return; }        // riga di un collega: in DidUP aprirebbe "aggiungi lezione"
         if (signed.has(`${stato.classe}#${n}`)) {
           log.unsignAttempts++;
           const box = document.createElement('div');
@@ -185,22 +221,25 @@
           getRange: () => cfg.classi.map(c => {
             const [den, sez] = [c.classe.slice(0, 1), c.classe.slice(1)];
             return rec({ desDenominazione: den, desSezione: sez, lezioni: c.lezioni.map(l => Object.assign(
-              { numOra: l.numOra, firmata: signed.has(`${c.classe}#${l.numOra}`), materia: { desDescrizione: l.materia, pk: 'm' + l.numOra } },
+              { numOra: l.numOra, firmata: homeIconFor(c.classe, l.numOra) === 'icon-ora-firmata', materia: { desDescrizione: l.materia, pk: 'm' + l.numOra } },
               cfg.timesInDashboard ? { oraInizioFine: cfg.times[l.numOra] } : {})) });
           }) } }) }];
       }
       if (sel === 'attivita-view' && views.registro) {
         return [{ isVisible: () => !views.registro.classList.contains('x-hidden-display'), lookupViewModel: () => ({ getStore: n => n !== 'attivita' ? null : {
-          getRange: () => [1, 2, 3, 4, 5].map(n => rec({ numOra: n, oraInizioFine: cfg.timesInRegistroData ? cfg.times[n] : '',
-            anagrafePK: myLesson(stato.classe, n) ? 'me' : 'other', flgPresente: signed.has(`${stato.classe}#${n}`) ? 'S' : 'N' })) } }) }];
+          getRange: () => gridRows().map(r => rec({ numOra: r.numOra, oraInizioFine: cfg.timesInRegistroData ? cfg.times[r.numOra] : '',
+            nominativoDocente: r.docente, anagrafePK: r.mine ? 'me' : 'other', flgPresente: r.firmata ? 'S' : 'N' })) } }) }];
       }
       if (sel === 'appello-classe-view' && views.appello) return [{ isVisible: () => true }];
       return [];
     } }
   };
   window.getUrlBase = () => '/api/';
-  window.WSX = { util: { IDXMENUDASH: 'dashboard-main-view', getAnagrafePK: () => 'me' },
-    app: { getMainView: () => ({ getController: () => ({ clickMenuItem: id => { if (id === 'dashboard-main-view') { log.apiHome++; cleanDesktopAndShowHome(); } } }) }) } };
+  window.WSX = { util: Object.assign({ IDXMENUDASH: 'dashboard-main-view' }, cfg.pk ? { getAnagrafePK: () => 'me' } : {}),
+    app: { getMainView: () => ({
+      getController: () => ({ clickMenuItem: id => { if (id === 'dashboard-main-view') { log.apiHome++; cleanDesktopAndShowHome(); } } }),
+      getViewModel: () => ({ getStore: n => n === 'userdata' ? { getAt: () => rec({ descutente: cfg.utente, anagrafePK: 'me' }) } : null })
+    }) } };
 
   // ---- schermata iniziale ----
   if (cfg.start === 'home') cleanDesktopAndShowHome();

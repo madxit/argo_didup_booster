@@ -36,7 +36,9 @@
         <div class="field">
           <label for="docenteNome">Cognome e nome del docente</label>
           <input id="docenteNome" autocomplete="off" placeholder="es. ROSSI MARIO">
-          <p class="hint">Facoltativo: compare nel popup. "Firma ora" riconosce da sola le tue ore (icone arancioni del registro).</p>
+          <p class="hint">Facoltativo. «Firma ora» riconosce le tue righe del registro dai dati di DidUP; nelle classi
+            articolate e in compresenza controlla anche che il docente della riga sia tu. Scrivilo come compare nella
+            colonna «Docente» del registro (es. ROSSI MARIO) se DidUP non lo indica da solo.</p>
         </div>
       </div>
 
@@ -63,8 +65,8 @@
         Un clic sull'icona dell'estensione (da qualsiasi scheda) apre Argo, compila il codice scuola,
         preme "SPID - CIE - EIDAS" e sceglie il provider o la CIE: a te resta solo l'autenticazione con
         l'app del provider o la CIE. Se il registro è già aperto lo mostra; se la sessione è scaduta
-        rifà l'accesso. Dentro il registro, invece, l'icona apre il popup con Firma e Appello.
-        Le impostazioni si aprono anche con il tasto destro sull'icona → Opzioni.
+        rifà l'accesso. Se sei già nel registro e la sessione è valida, l'icona apre queste impostazioni.
+        Firma e Appello sono pulsanti nella barra in alto del registro (vedi «Pulsanti nel registro»).
       </p>
     </section>
 
@@ -76,39 +78,66 @@
         <span>Mantieni attiva la sessione dopo l'accesso con SPID</span>
       </label>
 
-      <div id="keepalive-options">
-        <div class="field">
-          <label for="keepAliveInterval">Intervallo di refresh</label>
-          <div class="inline">
-            <input type="number" id="keepAliveInterval" min="30" max="3600" step="10" class="narrow">
-            <span>secondi</span>
-            <span id="interval-human" class="muted"></span>
-          </div>
-          <p class="hint">Tra 30 e 3600 secondi. Valore consigliato: 240 (4 minuti).</p>
-        </div>
-
-        <fieldset class="field">
-          <legend>Metodo</legend>
-          <label class="radio">
-            <input type="radio" name="keepAliveMethod" value="ping">
-            <span><strong>Ping silenzioso</strong> <span class="badge">consigliato</span><br>
-              Fa una richiesta leggera al server di Argo con la tua sessione, come farebbe il registro: la pagina
-              non viene ricaricata e non perdi quello che stai scrivendo.</span>
-          </label>
-          <label class="radio">
-            <input type="radio" name="keepAliveMethod" value="reload">
-            <span><strong>Ricarica la pagina</strong><br>
-              Ricarica la scheda di Argo, ma solo se non la stai usando e non hai digitato nulla; altrimenti esegue un ping.</span>
-          </label>
-        </fieldset>
-      </div>
-
       <p class="hint">
-        Si attiva solo dentro il registro (dopo l'accesso), finché la scheda di Argo resta aperta.
-        Se la scheda è in background Chrome può eseguire il refresh al massimo una volta al minuto.
-        Se la sessione scade comunque, riduci l'intervallo o passa a "Ricarica la pagina".
+        Funziona anche se il registro è in una scheda in secondo piano o in un'altra finestra, finché la
+        scheda resta aperta. Ogni minuto l'estensione controlla le schede del registro:
+      </p>
+      <ul class="hint list">
+        <li><strong>rinnova il token di accesso</strong> prima che scada (dura circa un'ora), con lo stesso comando
+          che usa DidUP, senza ricaricare la pagina e senza perdere quello che stai scrivendo;</li>
+        <li>ogni 4 minuti fa una <strong>richiesta leggera</strong> al server di Argo con la tua sessione, come il registro.</li>
+      </ul>
+      <p class="hint">
+        Se Argo rifiuta il rinnovo (per esempio perché chiede di nuovo SPID o CIE) lo trovi scritto qui sotto
+        e nel registro compare l'avviso con «Accedi di nuovo».
       </p>
       <p id="keepalive-status" class="status-line"></p>
+    </section>
+
+    <!-- ============ PULSANTI NEL REGISTRO ============ -->
+    <section class="card" id="sec-pulsanti">
+      <h2>🎨 Pulsanti nel registro</h2>
+      <p class="hint">
+        Nella barra in alto del registro l'estensione aggiunge due pulsanti rotondi: <strong>Firma ora</strong>
+        (la tua lezione in corso o la prossima) e <strong>Appello</strong> (la lezione più vicina all'ora). Passando
+        sopra con il mouse compare la scritta di cosa fanno; sotto si apre l'elenco dei passi. Lo stesso stile vale
+        per il pulsante <strong>Argomenti e compiti</strong> nella modifica della lezione.
+      </p>
+      <div class="buttons-layout">
+        <div>
+          <fieldset class="field">
+            <legend>Posizione nella barra</legend>
+            <div class="segmented" role="radiogroup" id="position-group"></div>
+            <p class="hint" id="position-hint"></p>
+          </fieldset>
+          <fieldset class="field">
+            <legend>Stile</legend>
+            <div id="theme-list" class="theme-list" role="radiogroup"></div>
+          </fieldset>
+        </div>
+        <div class="preview-wrap">
+          <div class="preview-label">Anteprima</div>
+          <div id="preview" class="preview" aria-hidden="true">
+            <div class="pv-header">
+              <div class="pv-logo">did<b>UP</b></div>
+              <div class="pv-school">Istituto di prova</div>
+              <div class="pv-right"><span class="pv-help">?</span><span class="pv-profile">Profilo</span></div>
+              <div class="pv-buttons" id="pv-buttons"></div>
+            </div>
+            <div class="pv-body">
+              <div class="pv-menu"><span>Home</span><span>Registro</span><span>Bacheca</span></div>
+              <div class="pv-content">
+                <div class="pv-fieldset">
+                  <span class="pv-legend"><b>Registro di classe</b> <i>Docenti ed alunni</i></span>
+                  <span id="pv-topics"></span>
+                </div>
+                <div class="pv-textarea"></div>
+              </div>
+            </div>
+          </div>
+          <p class="hint">Passa con il mouse sui pulsanti dell'anteprima per vedere la scritta.</p>
+        </div>
+      </div>
     </section>
 
     <!-- ============ DISCIPLINE E ARGOMENTI ============ -->
@@ -166,7 +195,7 @@
     <section class="card" id="sec-backup">
       <h2>💾 Esporta / Importa</h2>
       <p class="hint">
-        Salva tutte le impostazioni (codice scuola, sessione, discipline con argomenti e compiti) in un file JSON,
+        Salva tutte le impostazioni (codice scuola, sessione, pulsanti, discipline con argomenti e compiti) in un file JSON,
         per farne un backup o trasferirle su un altro computer.
       </p>
       <div class="btn-row">
