@@ -11,7 +11,7 @@ export const PROJECT = path.resolve(TESTS, '..');
 export const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 // File e cartelle che non fanno parte dell'estensione.
-const NOT_EXTENSION = new Set(['tests', 'tools', 'docs', 'README.md', 'CLAUDE.md', '.git', '.gitignore', '.DS_Store', 'desktop.ini']);
+const NOT_EXTENSION = new Set(['tests', 'tools', 'docs', 'dist', 'README.md', 'CLAUDE.md', '.git', '.github', '.gitignore', '.DS_Store', 'desktop.ini']);
 
 export function workDir(name) {
   const dir = path.join(os.tmpdir(), 'argo-didup-booster-tests', name);

@@ -7,7 +7,9 @@
 //     e stile si scelgono nelle impostazioni (BUTTON_THEMES in settings.js)
 //   • pannello dei passi sotto i pulsanti: cosa è stato cliccato, cosa non
 //     è stato trovato, le domande (es. ora fuori dalla sua fascia) e l'esito
-//   • avviso «Sessione scaduta» con «Accedi di nuovo» quando il service
+//   • i pulsanti si possono togliere nelle impostazioni (Funzioni nel registro)
+//   • la prima volta, una guida con lo sfondo scuro spiega i pulsanti
+//   • avviso «Sessione scaduta» con «Ricarica ora» quando il service
 //     worker (mantenimento della sessione) lo segnala
 // I pulsanti stanno in un elemento proprio, sopra la barra di DidUP: non si
 // tocca il layout di Ext JS, che li ricalcolerebbe o li sovrapporrebbe.
@@ -22,13 +24,14 @@
 
   const BTN = BOOSTER_BUTTON_SIZE;
   const GAP = BOOSTER_BUTTON_GAP;
-  const MARGIN = 18;           // distanza dagli elementi di DidUP
+  const MARGIN = 12;           // distanza dagli elementi di DidUP
   const ASK_TIMEOUT_MS = 2 * 60 * 1000;
-  const ACTIONS = BOOSTER_ACTIONS;
+  const GUIDE_STABLE_TICKS = 4;  // la barra deve restare ferma ~2,4 s prima della guida
 
   let settings = null;
-  let bar = null;              // { host, root, themeStyle, buttons }
+  let bar = null;              // { host, root, themeStyle, buttons, ids }
   let running = false;
+  let guideTicks = 0;
 
   // ------------------------------------------------------------------
   // Dove mettere i pulsanti
@@ -42,6 +45,9 @@
 
   // Barra in alto di DidUP (WSX.view.main.HeaderPanel): logo e nome della
   // scuola a sinistra, «Aggiorna APP», aiuto e profilo a destra.
+  // Il pulsante di aiuto è un'immagine alta 34 px dentro un pulsante Ext più
+  // grande e allineato in alto: i nostri pulsanti si centrano sull'immagine,
+  // non sulla barra, così stanno sulla stessa riga dell'aiuto.
   function headerParts() {
     const header = [...document.querySelectorAll('.header')].find(h =>
       shown(h) && (h.querySelector('.logo_programma, #intestazioneId') || h.querySelector('img[src*="help"]')));
@@ -52,7 +58,17 @@
     // Gruppo di destra: i pulsanti visibili accanto ad aiuto e profilo.
     const rightBtns = [...header.querySelectorAll('.x-btn')].filter(b => shown(b) &&
       (b === helpBtn || b === profile || (helpBtn && b.parentElement === helpBtn.parentElement)));
-    const rightLeft = rightBtns.length ? Math.min(...rightBtns.map(b => b.getBoundingClientRect().left)) : null;
+    // Bordo sinistro del gruppo: per l'aiuto conta l'immagine (il pulsante Ext è più largo).
+    const lefts = rightBtns.map(b => (b === helpBtn && shown(help) ? help : b).getBoundingClientRect().left);
+    const rightLeft = lefts.length ? Math.min(...lefts) : null;
+    let centerY = null;
+    if (help && shown(help)) {
+      const r = help.getBoundingClientRect();
+      centerY = r.top + r.height / 2;
+    } else if (profile && shown(profile)) {
+      const r = profile.getBoundingClientRect();
+      centerY = r.top + r.height / 2;
+    }
     // Fine del nome della scuola (il testo, non il riquadro che può essere largo).
     let leftEnd = null;
     const intest = header.querySelector('#intestazioneId');
@@ -65,14 +81,20 @@
     } else if (logo && shown(logo)) {
       leftEnd = logo.getBoundingClientRect().right;
     }
-    return { header, rect: header.getBoundingClientRect(), rightLeft, leftEnd };
+    return { header, rect: header.getBoundingClientRect(), rightLeft, leftEnd, centerY };
   }
 
   function place() {
     if (!bar) return;
-    const width = ACTIONS.length * BTN + (ACTIONS.length - 1) * GAP;
+    const n = bar.ids.length;
+    const width = n * BTN + (n - 1) * GAP;
     const parts = headerParts();
     const h = bar.host.style;
+    if (n === 0) {
+      h.display = 'none';
+      bar.host.dataset.where = 'hidden';
+      return;
+    }
     if (!parts) {
       // Barra di DidUP nascosta (es. schermata ingrandita): pulsanti in basso a destra, se il registro è aperto.
       const app = document.querySelector('.x-treelist') && shown(document.querySelector('.x-treelist'));
@@ -82,7 +104,7 @@
       bar.host.dataset.where = app ? 'floating' : 'hidden';
       return;
     }
-    const { rect, rightLeft, leftEnd } = parts;
+    const { rect, rightLeft, leftEnd, centerY } = parts;
     const minX = (leftEnd != null ? leftEnd : rect.left) + MARGIN;
     const maxX = (rightLeft != null ? rightLeft : rect.right) - MARGIN - width;
     let x;
@@ -93,7 +115,8 @@
     if (maxX >= minX) x = Math.min(Math.max(x, minX), maxX);
     h.display = '';
     h.left = `${Math.round(x)}px`;
-    h.top = `${Math.round(rect.top + (rect.height - BTN) / 2)}px`;
+    const cy = centerY != null && centerY > rect.top && centerY < rect.bottom ? centerY : rect.top + rect.height / 2;
+    h.top = `${Math.round(cy - BTN / 2)}px`;
     bar.host.dataset.where = pos;
   }
 
@@ -108,6 +131,7 @@
   }
 
   function createBar() {
+    if (bar) bar.host.remove();
     const host = document.createElement('div');
     host.setAttribute(ATTR, 'toolbar');
     // Sopra la barra di DidUP ma sotto le sue finestre e maschere (z-index da 19000 in su).
@@ -123,7 +147,8 @@
       <div class="bar" role="toolbar" aria-label="Argo DidUP Booster"></div>`;
     const wrap = root.querySelector('.bar');
     const buttons = {};
-    for (const a of ACTIONS) {
+    const actions = enabledActions(settings);
+    for (const a of actions) {
       wrap.insertAdjacentHTML('beforeend', boosterButtonHtml(a));
       const b = wrap.lastElementChild;
       for (const type of ['mousedown', 'pointerdown', 'mouseup', 'keydown']) b.addEventListener(type, e => e.stopPropagation());
@@ -132,10 +157,12 @@
       buttons[a.id] = b;
     }
     document.body.appendChild(host);
-    bar = { host, root, themeStyle: root.querySelector('.theme'), buttons };
+    bar = { host, root, themeStyle: root.querySelector('.theme'), buttons, ids: actions.map(a => a.id) };
     applyTheme();
     place();
   }
+
+  const barMatchesSettings = () => bar && bar.ids.join() === enabledActions(settings).map(a => a.id).join();
 
   function setBusy(action) {
     if (!bar) return;
@@ -150,8 +177,22 @@
   // ------------------------------------------------------------------
 
   const panel = (() => {
-    let host = null, root = null, pendingAsk = null;
+    let host = null, root = null, pendingAsk = null, dismissed = false;
     const $ = sel => root.querySelector(sel);
+    // Visibilità con style.display: l'attributo hidden sull'host non basta,
+    // perché «:host { all: initial }» del pannello lo annulla.
+    const isVisible = () => Boolean(host && host.isConnected && host.style.display !== 'none');
+    const setVisible = on => { if (host) host.style.display = on ? '' : 'none'; };
+
+    // Clic fuori dal pannello (e fuori dai pulsanti): si chiude. Solo i clic
+    // veri dell'utente: quelli che fa l'estensione nel registro non contano.
+    function onOutside(e) {
+      if (!e.isTrusted || !isVisible()) return;
+      const path = e.composedPath();
+      if (path.includes(host) || (bar && path.includes(bar.host))) return;
+      if (path.some(n => n && n.getAttribute && n.getAttribute(ATTR) === 'guide')) return;
+      close();
+    }
 
     function ensure() {
       if (host && host.isConnected) return;
@@ -208,6 +249,7 @@
       $('.x').addEventListener('click', close);
       document.body.appendChild(host);
       window.addEventListener('resize', position);
+      document.addEventListener('pointerdown', onOutside, true);
     }
 
     function position() {
@@ -232,15 +274,17 @@
       $('.askbox').hidden = true;
       $('.result').hidden = true;
       setState('running');
-      host.hidden = false;
+      setVisible(true);
+      dismissed = false;
       position();
     }
 
-    function show() { if (host) { host.hidden = false; position(); } }
+    function show() { if (host) { setVisible(true); dismissed = false; position(); } }
 
     function close() {
       if (!host) return;
-      host.hidden = true;
+      setVisible(false);
+      dismissed = true;
       // Pannello chiuso durante una domanda: vale come «no».
       if (pendingAsk) pendingAsk(false);
     }
@@ -291,10 +335,12 @@
       r.hidden = false;
       // l'errore è già l'ultimo passo dell'elenco: qui va il riepilogo
       r.textContent = result.ok ? result.summary : 'Non completato: leggi il passo in rosso.';
-      show();
+      // Chiuso con un clic fuori mentre lavorava: l'esito si rivede premendo di nuovo il pulsante.
+      if (!dismissed || !result.ok) show();
     }
 
-    return { open, show, close, addStep, ask, done, position };
+    const isOpen = isVisible;
+    return { open, show, close, addStep, ask, done, position, isOpen };
   })();
 
   async function runAction(action) {
@@ -307,6 +353,7 @@
       return;
     }
     running = true;
+    document.documentElement.dataset.argoBoosterBusy = action;   // il mantenimento della sessione non ricarica la pagina
     setBusy(action);
     panel.open(title);
     let result;
@@ -320,6 +367,7 @@
       panel.addStep({ text: 'Errore imprevisto: ' + result.error, kind: 'error' });
     } finally {
       running = false;
+      delete document.documentElement.dataset.argoBoosterBusy;
       setBusy(null);
     }
     panel.done(result);
@@ -332,16 +380,67 @@
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg || !isCurrent()) return;
     if (msg.type === 'argo-session-expired') {
-      assistantToast.show('Sessione di Argo scaduta', msg.text || 'Argo chiede di rifare l\'accesso.', {
+      assistantToast.show('Sessione di Argo scaduta', msg.text || 'Ricarico il registro appena smetti di usarlo.', {
         warn: true,
         actions: [
-          { label: 'Accedi di nuovo', onClick: () => chrome.runtime.sendMessage({ type: 'relogin-tab' }).catch(() => {}) },
+          { label: 'Ricarica ora', onClick: () => location.reload() },
           { label: 'Più tardi', ghost: true, onClick: () => {} }
         ]
       });
       sendResponse({ ok: true });
     }
   });
+
+  // ------------------------------------------------------------------
+  // Guida della prima volta (si spegne da sola dopo essere stata mostrata;
+  // si riattiva dalle impostazioni)
+  // ------------------------------------------------------------------
+
+  let guideShown = false;
+
+  function guideReady() {
+    if (guideShown || !settings.guidaPulsanti || !bar || !bar.ids.length) return false;
+    if (document.visibilityState !== 'visible' || assistantGuide.isOpen() || running) return false;
+    const where = bar.host.dataset.where;
+    if (!where || where === 'hidden') return false;
+    // DidUP sta ancora caricando (maschera) o ha una finestra aperta: si aspetta.
+    const busy = [...document.querySelectorAll('.x-mask, .x-window, .x-message-box')].some(el => {
+      if (!shown(el)) return false;
+      const r = el.getBoundingClientRect();
+      return r.right > 0 && r.bottom > 0 && r.left < window.innerWidth && r.top < window.innerHeight;
+    });
+    return !busy;
+  }
+
+  function showGuide() {
+    guideShown = true;
+    saveSettings({ guidaPulsanti: false }).catch(() => {});
+    const btn = id => () => bar && bar.buttons[id];
+    const steps = [{
+      target: () => bar && bar.root.querySelector('.bar'), round: true,
+      title: 'Nuovi pulsanti nel registro',
+      text: `${bar.ids.length > 1 ? 'Questi pulsanti non sono' : 'Questo pulsante non è'} di Argo: ${bar.ids.length > 1 ? 'li ha aggiunti' : 'l\'ha aggiunto'} l'estensione «Argo DidUP Booster».\n` +
+        'Passa sopra con il mouse per leggere cosa fanno. Quando li premi, sotto si apre l\'elenco dei passi: cosa è stato cliccato e perché.'
+    }];
+    if (bar.ids.includes('firma')) steps.push({
+      target: btn('firma'), round: true, title: 'Firma ora',
+      text: 'Va nella Home, legge gli orari delle tue lezioni di oggi e firma quella in corso (o la prossima).\n' +
+        'Nelle classi articolate firma solo la tua riga. Se l\'ora non è in corso, prima ti chiede il permesso. Non clicca mai un\'ora già firmata.'
+    });
+    if (bar.ids.includes('appello')) steps.push({
+      target: btn('appello'), round: true, title: 'Appello',
+      text: 'Apre l\'appello della lezione più vicina all\'ora attuale, da qualsiasi schermata del registro.\n' +
+        'DidUP lo permette dopo che hai firmato l\'ora: se non è possibile, il pannello ti dice perché.'
+    });
+    steps.push({
+      target: () => bar && bar.root.querySelector('.bar'), round: true,
+      title: 'Puoi cambiarli quando vuoi',
+      text: 'Nelle impostazioni dell\'estensione scegli quali funzioni mostrare, dove mettere i pulsanti e il loro stile. ' +
+        'Le apri con un clic sull\'icona dell\'estensione mentre sei nel registro.\nQuesta guida non comparirà più: puoi rivederla dalle impostazioni.',
+      action: { label: 'Apri impostazioni', onClick: openExtensionOptions }
+    });
+    assistantGuide.show(steps);
+  }
 
   // ------------------------------------------------------------------
   // Avvio
@@ -357,15 +456,18 @@
       if (bar) bar.host.style.display = 'none';
       return;
     }
-    if (!bar || !bar.host.isConnected) createBar();
+    if (!bar || !bar.host.isConnected || !barMatchesSettings()) createBar();
     place();
+    guideTicks = guideReady() ? guideTicks + 1 : 0;
+    if (guideTicks >= GUIDE_STABLE_TICKS) showGuide();
   }
 
   let timer = null;
   chrome.storage.onChanged.addListener(async (changes, area) => {
     if (area !== 'local' || !isCurrent()) return;
-    if (['buttonsTheme', 'buttonsPosition', 'docenteNome', 'argoDashboardPattern', 'argoLoginUrl'].some(k => k in changes)) {
+    if (['buttonsTheme', 'buttonsPosition', 'docenteNome', 'argoDashboardPattern', 'argoLoginUrl', 'showFirma', 'showAppello', 'guidaPulsanti'].some(k => k in changes)) {
       settings = await loadSettings();
+      if (changes.guidaPulsanti && changes.guidaPulsanti.newValue === true) guideShown = false;   // riattivata dalle impostazioni
       applyTheme();
       tick();
       panel.position();

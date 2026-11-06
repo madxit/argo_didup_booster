@@ -178,6 +178,7 @@ function bindAccesso() {
   });
 
   $('autoLogin').addEventListener('change', e => save({ autoLogin: e.target.checked }));
+  $('ricordami').addEventListener('change', e => save({ ricordami: e.target.checked }));
 }
 
 // =================== SESSIONE ===================
@@ -187,49 +188,127 @@ function bindSessione() {
 }
 
 const fmtTime = ts => new Date(ts).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' });
+const fmtDayTime = ts => new Date(ts).toLocaleString('it-IT', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+const minutes = n => `${n} ${n === 1 ? 'minuto' : 'minuti'}`;
 
-function renderKeepAliveStatus(st) {
+// Perché la sessione è risultata scaduta (vedi sessionInPage in background.js).
+const EXPIRY_CAUSE = {
+  token: 'token di accesso di Argo scaduto (dura circa un\'ora)',
+  box: 'Argo non ha rinnovato l\'accesso: DidUP ha mostrato «Sessione scaduta» (all\'accesso mancava «Ricordami»?)',
+  msg: 'il server di Argo ha chiuso la sessione'
+};
+
+let sessionInfo = { status: null, idleMin: KEEPALIVE_IDLE_MIN, log: [] };
+
+function addList(parent, items, title) {
+  if (!items.length) return;
+  if (title) {
+    const h = document.createElement('div');
+    h.className = 'status-sub';
+    h.textContent = title;
+    parent.appendChild(h);
+  }
+  const ul = document.createElement('ul');
+  for (const d of items) {
+    const li = document.createElement('li');
+    li.textContent = d;
+    ul.appendChild(li);
+  }
+  parent.appendChild(ul);
+}
+
+function renderKeepAliveStatus() {
+  const { status: st, idleMin, log } = sessionInfo;
+  $('idle-min').textContent = String(idleMin);
   const el = $('keepalive-status');
   el.className = 'status-line';
   el.textContent = '';
+  const head = document.createElement('div');
+  el.appendChild(head);
   if (!state.keepAliveEnabled) {
-    el.textContent = 'Mantenimento della sessione disattivato.';
+    head.textContent = 'Mantenimento della sessione disattivato.';
     return;
   }
   if (!st || !st.time) {
-    el.textContent = 'Nessun controllo ancora eseguito: parte entro un minuto quando sei dentro il registro.';
-    return;
-  }
-  const when = new Date(st.time).toLocaleString('it-IT', {
-    day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit'
-  });
-  const details = [];
-  if (st.lastRenewAt) details.push(`token di accesso rinnovato alle ${fmtTime(st.lastRenewAt)}`);
-  if (st.tokenExpiresAt && !st.expired) {
-    const min = Math.round((st.tokenExpiresAt - Date.now()) / 60000);
-    details.push(min > 0 ? `il token vale ancora circa ${min} min (verrà rinnovato prima)` : 'token in scadenza: rinnovo in corso');
-  }
-  if (st.noOidc) details.push('rinnovo del token non disponibile in questa pagina: solo richieste al server');
-  if (st.renewError) details.push(`rinnovo del token non riuscito: ${st.renewError}`);
-  if (st.expired) {
-    el.classList.add('err');
-    el.textContent = `⚠️ Sessione scaduta (rilevato il ${when}). Rifai l'accesso: clic sull'icona dell'estensione o «Accedi di nuovo» nel registro.`;
-  } else if (st.ok) {
-    el.classList.add('ok');
-    el.textContent = st.action === 'renew' ? `✓ Token di accesso rinnovato: ${when}` : `✓ Sessione attiva · ultimo controllo: ${when}`;
+    head.textContent = 'Nessun controllo ancora eseguito: parte entro un minuto quando sei dentro il registro.';
   } else {
-    el.classList.add('err');
-    el.textContent = `Ultimo controllo non riuscito (${when})` + (st.error ? `: ${st.error}` : st.httpStatus ? `: risposta ${st.httpStatus} dal server` : '');
-  }
-  if (details.length) {
-    const ul = document.createElement('ul');
-    for (const d of details) {
-      const li = document.createElement('li');
-      li.textContent = d;
-      ul.appendChild(li);
+    const when = new Date(st.time).toLocaleTimeString('it-IT');
+    const reason = st.lastReloadReason === 'scaduta' ? 'sessione scaduta' : 'nessun uso';
+    if (st.action === 'login') {
+      el.classList.add('err');
+      head.textContent = `⚠️ Dopo la ricarica delle ${fmtTime(st.lastReloadAt || st.time)} Argo ha chiesto di nuovo l'accesso con SPID o CIE. ` +
+        (state.ricordami ? 'Rifai l\'accesso: con «Ricordami» spuntato, la prossima volta Argo ti farà rientrare da solo.'
+          : 'Attiva «Spunta Ricordami» nella sezione «Scuola e accesso» e rifai l\'accesso: la prossima volta Argo ti farà rientrare da solo.');
+    } else if (st.action === 'reload') {
+      el.classList.add(st.reason === 'scaduta' ? 'warn' : 'ok');
+      head.textContent = st.reason === 'scaduta'
+        ? `Sessione scaduta: registro ricaricato alle ${when}.`
+        : `✓ Registro ricaricato alle ${when}, dopo ${minutes(st.idleMin)} senza uso: sessione rinnovata.`;
+    } else if (st.expired) {
+      el.classList.add('err');
+      head.textContent = st.busy
+        ? `⚠️ Sessione scaduta (controllo delle ${when}), ma ${st.busy}: ricarico il registro quando la chiudi.`
+        : `⚠️ Sessione scaduta (controllo delle ${when}): ricarico il registro appena non lo usi da un minuto.`;
+    } else if (st.action === 'error') {
+      el.classList.add('err');
+      head.textContent = `Ricarica del registro non riuscita (${when}): ${st.error || 'errore sconosciuto'}.`;
+    } else {
+      el.classList.add('ok');
+      head.textContent = `✓ Sessione attiva · ultimo controllo: ${when}`;
     }
-    el.appendChild(ul);
+    const details = [];
+    if (!st.expired && st.action !== 'login') {
+      if (st.busy) details.push(`ricarica rimandata: ${st.busy}`);
+      else if (st.nextReloadAt && st.nextReloadAt > Date.now()) {
+        details.push(`prossima ricarica verso le ${fmtTime(st.nextReloadAt)}, se fino ad allora non usi il registro`);
+      }
+    }
+    if (st.lastReloadAt && st.action !== 'reload' && st.action !== 'login') details.push(`ultima ricarica automatica: ${fmtTime(st.lastReloadAt)} (${reason})`);
+    if (st.tokenExpiresAt && st.tokenExpiresAt > Date.now() && !st.expired) {
+      details.push(`token di accesso di Argo valido fino alle ${fmtTime(st.tokenExpiresAt)}: con «Ricordami» DidUP lo rinnova da solo`);
+    }
+    addList(el, details);
   }
+  addList(el, log.slice(0, 5).map(e => {
+    const parts = [fmtDayTime(e.at)];
+    if (e.sinceLoadMin != null) parts.push(`${minutes(e.sinceLoadMin)} dopo il caricamento della pagina`);
+    if (e.idleMin != null) parts.push(`${minutes(e.idleMin)} senza uso`);
+    return `${parts.join(' · ')} — ${EXPIRY_CAUSE[e.why] || 'motivo non noto'}`;
+  }), 'Scadenze osservate (le più recenti):');
+}
+
+async function loadSessionInfo() {
+  const got = await chrome.storage.local.get(['keepAliveStatus', 'keepAliveIdleMin', 'sessionLog']);
+  const n = Number(got.keepAliveIdleMin);
+  sessionInfo = {
+    status: got.keepAliveStatus || null,
+    idleMin: n >= KEEPALIVE_IDLE_MIN_FLOOR && n <= KEEPALIVE_IDLE_MIN ? n : KEEPALIVE_IDLE_MIN,
+    log: Array.isArray(got.sessionLog) ? got.sessionLog : []
+  };
+  renderKeepAliveStatus();
+}
+
+// =================== FUNZIONI NEL REGISTRO ===================
+
+const FEATURE_KEYS = ['showFirma', 'showAppello', 'showArgomenti'];
+const GUIDE_KEYS = ['guidaPulsanti', 'guidaArgomenti'];
+let featureRoots = [];
+
+function bindFunzioni() {
+  for (const key of [...FEATURE_KEYS, ...GUIDE_KEYS]) {
+    $(key).addEventListener('change', e => {
+      save({ [key]: e.target.checked });
+      renderPreview();
+    });
+  }
+  // Icona di ogni funzione: lo stesso pulsante che compare nel registro.
+  const icons = { 'fi-firma': BOOSTER_ICONS.firma, 'fi-appello': BOOSTER_ICONS.appello, 'fi-argomenti': BOOSTER_ICONS.book.replace(/(width|height)="14"/g, '$1="18"') };
+  featureRoots = Object.entries(icons).map(([id, svg]) => {
+    const root = $(id).attachShadow({ mode: 'open' });
+    root.innerHTML = `<style>:host{all:initial}${boosterButtonsCss()} .b{cursor:default}</style><style class="theme"></style>` +
+      `<span class="b" role="img">${svg}</span>`;
+    return root;
+  });
 }
 
 // =================== PULSANTI NEL REGISTRO ===================
@@ -246,9 +325,9 @@ function buildPreview() {
     return root;
   };
   previewRoots = {
-    buttons: mk('pv-buttons', `<style>:host{all:initial}${boosterButtonsCss()}</style><style class="theme"></style>
+    buttons: mk('pv-buttons', `<style>:host{all:initial}${boosterButtonsCss()} .b[hidden]{display:none}</style><style class="theme"></style>
       <div class="bar">${BOOSTER_ACTIONS.map(boosterButtonHtml).join('')}</div>`),
-    topics: mk('pv-topics', `<style>:host{all:initial}${boosterPillCss()}</style><style class="theme"></style>
+    topics: mk('pv-topics', `<style>:host{all:initial}${boosterPillCss()} .pill[hidden]{display:none}</style><style class="theme"></style>
       <button type="button" class="pill" tabindex="-1">${BOOSTER_ICONS.book}<span>Argomenti e compiti</span></button>`)
   };
 }
@@ -256,13 +335,21 @@ function buildPreview() {
 function renderPreview() {
   if (!previewRoots) return;
   const css = `:host { ${buttonThemeCss(state.buttonsTheme)} }`;
-  for (const root of Object.values(previewRoots)) root.querySelector('style.theme').textContent = css;
+  for (const root of [...Object.values(previewRoots), ...featureRoots]) root.querySelector('style.theme').textContent = css;
+  // Solo le funzioni attive (sezione «Funzioni nel registro»).
+  for (const a of BOOSTER_ACTIONS) previewRoots.buttons.querySelector(`[data-action="${a.id}"]`).hidden = state[a.setting] === false;
+  previewRoots.topics.querySelector('.pill').hidden = !state.showArgomenti;
   const pv = $('pv-buttons');
   pv.style.left = pv.style.right = '';
   pv.style.transform = 'translateY(-50%)';
   if (state.buttonsPosition === 'left') pv.style.left = '210px';
   else if (state.buttonsPosition === 'center') { pv.style.left = '50%'; pv.style.transform = 'translate(-50%, -50%)'; }
-  else pv.style.right = '118px';
+  else {
+    // a destra, accanto al pulsante di aiuto (come nel registro)
+    const header = document.querySelector('.pv-header').getBoundingClientRect();
+    const help = document.querySelector('.pv-help').getBoundingClientRect();
+    pv.style.right = header.width ? `${Math.round(header.right - help.left + 10)}px` : '96px';
+  }
   const pos = BUTTON_POSITIONS.find(p => p.id === state.buttonsPosition);
   $('position-hint').textContent = pos ? `${pos.nome}: ${pos.desc}.` : '';
   document.querySelectorAll('input[name="buttonsPosition"]').forEach(r => { r.checked = r.value === state.buttonsPosition; });
@@ -926,7 +1013,9 @@ function fillForm() {
   $('spidProvider').value = state.spidProvider;
   updateProviderField();
   $('autoLogin').checked = state.autoLogin;
+  $('ricordami').checked = state.ricordami;
   $('keepAliveEnabled').checked = state.keepAliveEnabled;
+  for (const key of [...FEATURE_KEYS, ...GUIDE_KEYS]) $(key).checked = state[key];
   renderPreview();
   for (const key of URL_KEYS) $(key).value = state[key];
   updateMissingCode();
@@ -938,6 +1027,7 @@ function fillForm() {
 
 function renderInfo() {
   $('info-version').textContent = 'v' + (chrome.runtime.getManifest().version || '?');
+  for (const id of ['repo-link', 'repo-link-foot']) $(id).href = REPO_URL;
 }
 
 (async function init() {
@@ -949,6 +1039,7 @@ function renderInfo() {
   bindScuola();
   bindAccesso();
   bindSessione();
+  bindFunzioni();
   bindPulsanti();
   bindDiscipline();
   bindArgomenti();
@@ -959,11 +1050,19 @@ function renderInfo() {
 
   if (!state.codiceScuola) $('codiceScuola').focus();
 
-  let { keepAliveStatus } = await chrome.storage.local.get('keepAliveStatus');
-  renderKeepAliveStatus(keepAliveStatus);
+  await loadSessionInfo();
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
-    if (changes.keepAliveStatus) keepAliveStatus = changes.keepAliveStatus.newValue;
-    if (changes.keepAliveStatus || changes.keepAliveEnabled) renderKeepAliveStatus(keepAliveStatus);
+    if (changes.keepAliveStatus || changes.keepAliveIdleMin || changes.sessionLog) loadSessionInfo();
+    else if (changes.keepAliveEnabled || changes.ricordami) renderKeepAliveStatus();
+    // Le guide si spengono da sole dopo essere state mostrate nel registro.
+    for (const key of GUIDE_KEYS) {
+      if (changes[key] && typeof changes[key].newValue === 'boolean') {
+        state[key] = changes[key].newValue;
+        $(key).checked = state[key];
+      }
+    }
   });
+  // «tra N minuti» resta aggiornato anche con la pagina aperta
+  setInterval(renderKeepAliveStatus, 30000);
 })();

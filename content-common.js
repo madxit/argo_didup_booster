@@ -126,3 +126,140 @@ var assistantToast = (() => {
   }
   return { show, hide };
 })();
+
+// Guida interattiva (prima volta che compaiono le funzioni dell'estensione):
+// sfondo scuro, l'elemento spiegato resta illuminato e accanto c'è un riquadro
+// con il testo e i pulsanti Indietro / Avanti / Fine.
+//   steps: [{ target: () => Element | null, title, text, round, action: { label, onClick } }]
+// Restituisce una Promise che si risolve alla chiusura.
+var assistantGuide = (() => {
+  let current = null;
+
+  function close() {
+    if (!current) return;
+    const { host, timer, onKey, resolve } = current;
+    clearInterval(timer);
+    window.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('resize', current.place);
+    host.remove();
+    current = null;
+    resolve();
+  }
+
+  function show(steps, { brand = 'Argo DidUP Booster' } = {}) {
+    close();
+    steps = steps.filter(Boolean);
+    if (!steps.length) return Promise.resolve();
+    return new Promise(resolve => {
+      const host = document.createElement('div');
+      host.setAttribute('data-argo-assistant', 'guide');
+      host.style.cssText = 'position:fixed;inset:0;z-index:2147483600;';
+      const root = host.attachShadow({ mode: 'open' });
+      root.innerHTML = `
+        <style>
+          :host { all: initial; }
+          * { box-sizing: border-box; }
+          .catch { position: fixed; inset: 0; }
+          .hole { position: fixed; border-radius: 12px; pointer-events: none;
+                  box-shadow: 0 0 0 3px #fff, 0 0 0 200vmax rgba(15, 23, 42, .68);
+                  transition: left .25s, top .25s, width .25s, height .25s; }
+          .hole.round { border-radius: 999px; }
+          .hole::after { content: ''; position: absolute; inset: -9px; border-radius: inherit; border: 2px solid rgba(255,255,255,.75);
+                         animation: ring 1.6s ease-out infinite; }
+          @keyframes ring { from { opacity: 1; transform: scale(.92); } to { opacity: 0; transform: scale(1.25); } }
+          .card { position: fixed; width: 360px; max-width: calc(100vw - 24px); background: #fff; color: #1f2937; border-radius: 14px;
+                  box-shadow: 0 24px 60px rgba(0,0,0,.35); font: 14px/1.5 system-ui, -apple-system, 'Segoe UI', sans-serif; overflow: hidden; }
+          .brand { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: #f1f5f9; color: #475569;
+                   font-size: 12px; font-weight: 600; letter-spacing: .01em; }
+          .logo { width: 20px; height: 20px; border-radius: 6px; background: #1d4ed8; color: #fff; display: grid; place-items: center; font-size: 11px; font-weight: 700; }
+          .count { margin-left: auto; font-weight: 500; }
+          .body { padding: 12px 16px 6px; }
+          h3 { margin: 0 0 6px; font-size: 16px; color: #0f172a; }
+          p { margin: 0 0 8px; white-space: pre-line; }
+          .foot { display: flex; align-items: center; gap: 8px; padding: 10px 14px 14px; flex-wrap: wrap; }
+          .sp { flex: 1; }
+          button { font: inherit; font-weight: 600; border-radius: 9px; padding: 7px 14px; cursor: pointer; border: 1px solid transparent; }
+          .next { background: #1d4ed8; color: #fff; }
+          .next:hover { background: #1e40af; }
+          .back, .extra { background: #fff; color: #334155; border-color: #cbd5e1; }
+          .back:hover, .extra:hover { background: #f1f5f9; }
+          .skip { background: transparent; color: #64748b; padding: 7px 6px; }
+          .skip:hover { color: #0f172a; text-decoration: underline; }
+          [hidden] { display: none !important; }
+        </style>
+        <div class="catch"></div>
+        <div class="hole"></div>
+        <div class="card" role="dialog" aria-modal="true" aria-labelledby="g-title">
+          <div class="brand"><span class="logo">A</span><span></span><span class="count"></span></div>
+          <div class="body"><h3 id="g-title"></h3><p class="text"></p></div>
+          <div class="foot"><button class="skip" type="button">Salta la guida</button><span class="sp"></span>
+            <button class="extra" type="button" hidden></button><button class="back" type="button">Indietro</button><button class="next" type="button"></button></div>
+        </div>`;
+      const $ = s => root.querySelector(s);
+      $('.brand span:nth-child(2)').textContent = brand;
+      const card = $('.card'), hole = $('.hole');
+      // Né clic né tasti devono arrivare a DidUP mentre la guida è aperta.
+      for (const type of ['mousedown', 'pointerdown', 'mouseup', 'click', 'keydown', 'keyup', 'wheel']) {
+        root.addEventListener(type, e => e.stopPropagation());
+      }
+      let i = 0;
+      const place = () => {
+        const step = steps[i];
+        const el = step.target && step.target();
+        const vw = window.innerWidth, vh = window.innerHeight;
+        let r = el && el.isConnected ? el.getBoundingClientRect() : null;
+        if (r && r.width === 0 && r.height === 0) r = null;
+        const pad = step.round ? 7 : 8;
+        if (r) {
+          hole.hidden = false;
+          hole.classList.toggle('round', Boolean(step.round));
+          Object.assign(hole.style, { left: `${r.left - pad}px`, top: `${r.top - pad}px`, width: `${r.width + 2 * pad}px`, height: `${r.height + 2 * pad}px` });
+        } else {
+          hole.hidden = true;
+        }
+        const cw = card.offsetWidth, ch = card.offsetHeight;
+        let left, top;
+        if (r) {
+          left = Math.min(Math.max(12, r.left + r.width / 2 - cw / 2), vw - cw - 12);
+          top = r.bottom + pad + 14;
+          if (top + ch > vh - 12) top = Math.max(12, r.top - pad - 14 - ch);
+        } else {
+          left = (vw - cw) / 2;
+          top = Math.max(12, (vh - ch) / 2);
+        }
+        card.style.left = `${Math.round(left)}px`;
+        card.style.top = `${Math.round(top)}px`;
+      };
+      const render = () => {
+        const step = steps[i];
+        $('h3').textContent = step.title;
+        $('.text').textContent = step.text;
+        $('.count').textContent = steps.length > 1 ? `${i + 1} di ${steps.length}` : '';
+        $('.back').hidden = i === 0;
+        $('.next').textContent = i === steps.length - 1 ? 'Ho capito' : 'Avanti';
+        $('.skip').hidden = i === steps.length - 1;
+        const extra = $('.extra');
+        extra.hidden = !step.action;
+        if (step.action) extra.textContent = step.action.label;
+        place();
+        $('.next').focus({ preventScroll: true });
+      };
+      $('.next').addEventListener('click', () => { if (i < steps.length - 1) { i++; render(); } else close(); });
+      $('.back').addEventListener('click', () => { if (i > 0) { i--; render(); } });
+      $('.skip').addEventListener('click', close);
+      $('.extra').addEventListener('click', () => { const a = steps[i].action; if (a) a.onClick(); });
+      const onKey = e => {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+        else if (e.key === 'ArrowRight' || e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); $('.next').click(); }
+        else if (e.key === 'ArrowLeft') { e.preventDefault(); e.stopPropagation(); $('.back').click(); }
+      };
+      (document.body || document.documentElement).appendChild(host);
+      current = { host, resolve, onKey, place, timer: setInterval(() => place(), 400) };
+      window.addEventListener('keydown', onKey, true);
+      window.addEventListener('resize', place);
+      render();
+    });
+  }
+
+  return { show, close, isOpen: () => Boolean(current) };
+})();

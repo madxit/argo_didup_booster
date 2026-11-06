@@ -15,6 +15,11 @@
       <p>Impostazioni</p>
     </div>
     <span id="save-indicator" class="save-indicator" aria-live="polite">✓ Salvato</span>
+    <a id="repo-link" class="repo-link" href="https://github.com/madxit/argo_didup_booster" target="_blank" rel="noopener"
+       title="Codice, aggiornamenti e segnalazioni su GitHub">
+      <svg viewBox="0 0 16 16" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>
+      <span>GitHub</span>
+    </a>
   </header>
 
   <main>
@@ -61,12 +66,22 @@
         <input type="checkbox" id="autoLogin" class="switch">
         <span>Accesso automatico quando si apre la pagina di accesso di Argo</span>
       </label>
+      <label class="switch-row">
+        <input type="checkbox" id="ricordami" class="switch">
+        <span>Spunta «Ricordami» nella pagina di accesso di Argo</span>
+      </label>
+      <p class="hint">
+        Con «Ricordami» Argo rinnova da solo l'accesso al registro: senza, dopo circa un'ora chiede di nuovo SPID o CIE
+        (è quello che dice anche il messaggio «Sessione scaduta» di DidUP). Come scrive Argo nella pagina di accesso,
+        con «Ricordami» «non dovrai più autenticarti su questo dispositivo». <strong>Non attivarlo su un computer usato
+        anche da altri</strong> (per esempio il PC dell'aula).
+      </p>
       <p class="hint">
         Un clic sull'icona dell'estensione (da qualsiasi scheda) apre Argo, compila il codice scuola,
         preme "SPID - CIE - EIDAS" e sceglie il provider o la CIE: a te resta solo l'autenticazione con
         l'app del provider o la CIE. Se il registro è già aperto lo mostra; se la sessione è scaduta
         rifà l'accesso. Se sei già nel registro e la sessione è valida, l'icona apre queste impostazioni.
-        Firma e Appello sono pulsanti nella barra in alto del registro (vedi «Pulsanti nel registro»).
+        Firma e Appello sono pulsanti nella barra in alto del registro (vedi «Funzioni nel registro»).
       </p>
     </section>
 
@@ -75,33 +90,69 @@
       <h2>🔄 Sessione</h2>
       <label class="switch-row">
         <input type="checkbox" id="keepAliveEnabled" class="switch">
-        <span>Mantieni attiva la sessione dopo l'accesso con SPID</span>
+        <span>Mantieni attiva la sessione dopo l'accesso</span>
       </label>
 
       <p class="hint">
-        Funziona anche se il registro è in una scheda in secondo piano o in un'altra finestra, finché la
-        scheda resta aperta. Ogni minuto l'estensione controlla le schede del registro:
+        Quando non usi il registro da <strong id="idle-min">10</strong> minuti, l'estensione <strong>ricarica la pagina</strong>
+        del registro, come se premessi il tasto Ricarica del browser: così la sessione riparte. Funziona anche se il
+        registro è in una scheda in secondo piano o in un'altra finestra, finché la scheda resta aperta.
       </p>
       <ul class="hint list">
-        <li><strong>rinnova il token di accesso</strong> prima che scada (dura circa un'ora), con lo stesso comando
-          che usa DidUP, senza ricaricare la pagina e senza perdere quello che stai scrivendo;</li>
-        <li>ogni 4 minuti fa una <strong>richiesta leggera</strong> al server di Argo con la tua sessione, come il registro.</li>
+        <li>Ogni tuo clic, tasto, movimento del mouse o cambio di schermata (e ogni ricarica) <strong>fa ripartire il
+          conteggio</strong>: mentre lavori la pagina non viene mai ricaricata.</li>
+        <li>Non ricarica se è aperta una finestra di DidUP, per esempio la <strong>modifica di una lezione</strong>, per non
+          farti perdere quello che stai scrivendo.</li>
+        <li>Se la sessione è già scaduta, ricarica il registro dopo un minuto in cui non lo usi. Con «Ricordami» (sezione
+          sopra) Argo ti fa rientrare da solo; senza, ti chiede di nuovo SPID o CIE.</li>
+        <li>Ogni scadenza viene annotata qui sotto, con quanto era durata: se la sessione si dimostra più corta, la
+          ricarica viene anticipata.</li>
       </ul>
-      <p class="hint">
-        Se Argo rifiuta il rinnovo (per esempio perché chiede di nuovo SPID o CIE) lo trovi scritto qui sotto
-        e nel registro compare l'avviso con «Accedi di nuovo».
-      </p>
-      <p id="keepalive-status" class="status-line"></p>
+      <div id="keepalive-status" class="status-line"></div>
     </section>
 
-    <!-- ============ PULSANTI NEL REGISTRO ============ -->
-    <section class="card" id="sec-pulsanti">
-      <h2>🎨 Pulsanti nel registro</h2>
+    <!-- ============ FUNZIONI NEL REGISTRO ============ -->
+    <section class="card" id="sec-funzioni">
+      <h2>🧩 Funzioni nel registro</h2>
+      <p class="hint">Scegli quali funzioni l'estensione aggiunge al registro. Le modifiche si vedono subito, anche nel registro già aperto.</p>
+      <div class="feature-list">
+        <label class="feature">
+          <input type="checkbox" id="showFirma" class="switch">
+          <span class="feature-icon" id="fi-firma"></span>
+          <span class="feature-text"><strong>Firma ora</strong>
+            <small>Pulsante nella barra in alto: firma la tua lezione in corso (o la prossima, dopo averti chiesto il permesso).</small></span>
+        </label>
+        <label class="feature">
+          <input type="checkbox" id="showAppello" class="switch">
+          <span class="feature-icon" id="fi-appello"></span>
+          <span class="feature-text"><strong>Appello</strong>
+            <small>Pulsante nella barra in alto: apre l'appello della lezione più vicina all'ora attuale.</small></span>
+        </label>
+        <label class="feature">
+          <input type="checkbox" id="showArgomenti" class="switch">
+          <span class="feature-icon" id="fi-argomenti"></span>
+          <span class="feature-text"><strong>Argomenti e compiti</strong>
+            <small>Pulsante nella modifica della lezione: inserisce i tuoi argomenti e compiti (sezione «Discipline» più sotto).</small></span>
+        </label>
+      </div>
+      <h3 class="subhead">Guida</h3>
       <p class="hint">
-        Nella barra in alto del registro l'estensione aggiunge due pulsanti rotondi: <strong>Firma ora</strong>
-        (la tua lezione in corso o la prossima) e <strong>Appello</strong> (la lezione più vicina all'ora). Passando
-        sopra con il mouse compare la scritta di cosa fanno; sotto si apre l'elenco dei passi. Lo stesso stile vale
-        per il pulsante <strong>Argomenti e compiti</strong> nella modifica della lezione.
+        La prima volta che compaiono, una guida con lo sfondo scuro spiega le funzioni aggiunte dall'estensione. Dopo
+        essere stata mostrata la casella si spegne da sola: spuntala per rivederla.
+      </p>
+      <label class="check-row"><input type="checkbox" id="guidaPulsanti">
+        <span>Mostra la guida dei pulsanti <em>Firma ora</em> e <em>Appello</em> alla prossima apertura del registro</span></label>
+      <label class="check-row"><input type="checkbox" id="guidaArgomenti">
+        <span>Mostra la guida di <em>Argomenti e compiti</em> la prossima volta che modifichi una lezione</span></label>
+    </section>
+
+    <!-- ============ ASPETTO DEI PULSANTI ============ -->
+    <section class="card" id="sec-pulsanti">
+      <h2>🎨 Aspetto dei pulsanti</h2>
+      <p class="hint">
+        <strong>Firma ora</strong> e <strong>Appello</strong> sono pulsanti rotondi nella barra in alto del registro.
+        Passando sopra con il mouse compare la scritta di cosa fanno; sotto si apre l'elenco dei passi. Lo stesso stile
+        vale per il pulsante <strong>Argomenti e compiti</strong> nella modifica della lezione.
       </p>
       <div class="buttons-layout">
         <div>
@@ -195,7 +246,7 @@
     <section class="card" id="sec-backup">
       <h2>💾 Esporta / Importa</h2>
       <p class="hint">
-        Salva tutte le impostazioni (codice scuola, sessione, pulsanti, discipline con argomenti e compiti) in un file JSON,
+        Salva tutte le impostazioni (codice scuola, sessione, funzioni e pulsanti, discipline con argomenti e compiti) in un file JSON,
         per farne un backup o trasferirle su un altro computer.
       </p>
       <div class="btn-row">
@@ -226,6 +277,10 @@
       <button id="reset-urls" class="btn small" type="button">Ripristina indirizzi predefiniti</button>
     </details>
 
+    <footer class="page-foot">
+      Argo DidUP Booster è un progetto indipendente e non ufficiale. Codice, aggiornamenti e segnalazioni:
+      <a id="repo-link-foot" href="https://github.com/madxit/argo_didup_booster" target="_blank" rel="noopener">github.com/madxit/argo_didup_booster</a>
+    </footer>
   </main>
 
   <dialog id="choice-dialog">
