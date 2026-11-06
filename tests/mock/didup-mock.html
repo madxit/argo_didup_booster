@@ -5,7 +5,9 @@
   .header { position: fixed; top: 0; left: 0; right: 0; height: 58px; display: flex; align-items: center; gap: 14px; padding: 0 16px; background: #fff; border-bottom: 1px solid #ddd; box-sizing: border-box; }
   .logo_programma { width: 90px; height: 30px; background: #11799c; }
   #intestazioneId { font-weight: 600; color: #234e66; }
-  .header .right { margin-left: auto; display: flex; gap: 20px; align-items: center; }
+  /* Come in DidUP: il gruppo di destra (hbox senza "align") sta in alto, quindi l'immagine dell'aiuto non è al centro della barra */
+  .header .right { margin-left: auto; display: flex; gap: 20px; align-items: flex-start; align-self: stretch; padding-top: 3px; }
+  #btnNews { display: inline-block; width: 45px; text-align: center; } #btnNews img { display: block; margin: 0 auto; }
   #menu { width: 200px; background: #234e66; color: #fff; min-height: 100vh; }
   .x-treelist-root-container, .x-treelist-container { list-style: none; margin: 0; padding: 0; }
   .x-treelist-row { padding: 10px 14px; cursor: pointer; }
@@ -23,7 +25,7 @@
 </style></head>
 <body>
 <div class="x-panel header" id="headerpnl-1"><div class="header-sub-div"><div class="logo_programma cursor-pointer"></div><div class="intestazione" id="intestazioneId">ITT di prova</div></div>
-  <div class="right"><a class="x-btn" id="btnNews"><span class="x-btn-inner"><img height="34" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='34' height='34'%3E%3Ccircle cx='17' cy='17' r='16' fill='%2311799c'/%3E%3C/svg%3E#help2.png"></span></a>
+  <div class="right"><a class="x-btn" id="btnNews"><span class="x-btn-inner"><img height="34" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='34'%3E%3Ccircle cx='18' cy='17' r='15' fill='%23fff' stroke='%23ff9625' stroke-width='2'/%3E%3Ctext x='18' y='23' font-size='17' font-family='Arial' font-weight='bold' fill='%23ff9625' text-anchor='middle'%3E%3F%3C/text%3E%3C/svg%3E#help2.png"></span></a>
   <a class="x-btn btn-profile" id="btnProfile"><span class="x-btn-inner">Profilo</span></a></div></div>
 <div id="menu" class="x-treelist x-treelist-nav"></div>
 <div id="desktop"></div>

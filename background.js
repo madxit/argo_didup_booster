@@ -6,8 +6,8 @@
 //     Se sei già nel registro con la sessione valida, il clic apre le
 //     impostazioni. Senza codice scuola apre le impostazioni.
 //   • mantenimento della sessione: ogni minuto (chrome.alarms, anche con il
-//     registro in una scheda in secondo piano) rinnova il token di accesso
-//     prima che scada e fa una richiesta autenticata al server
+//     registro in una scheda in secondo piano) ricarica il registro quando
+//     non lo usi da qualche minuto o quando la sessione è scaduta
 //   • badge "!" finché manca il codice scuola
 // =====================================================================
 
@@ -164,97 +164,112 @@ chrome.action.onClicked.addListener(async tab => {
 });
 
 // ---------------------------------------------------------------------
-// Mantenimento della sessione (unico metodo)
+// Mantenimento della sessione (unico metodo): ricarica della pagina quando
+// non la stai usando.
 // DidUP usa due credenziali (vedi CLAUDE.md):
-//   • il token OIDC (Authorization: Bearer), che dura circa un'ora: DidUP
-//     prova a rinnovarlo da solo un minuto prima che scada, ma se la scheda
-//     è in secondo piano o il tentativo fallisce la sessione si perde;
-//   • la sessione applicativa (x-auth-token), che il server chiude se non
-//     riceve richieste.
+//   • il token OIDC (Authorization: Bearer), che dura circa un'ora: DidUP lo
+//     rinnova da solo, ma Argo lo permette solo se all'accesso è stata
+//     spuntata «Ricordami» (lo fa login.js); altrimenti chiede di nuovo SPID;
+//   • la sessione sul server (x-auth-token), che si chiude se non riceve
+//     richieste.
 // Ogni minuto, per ogni scheda del registro (anche in secondo piano):
-//   1. se il token scade entro 10 minuti lo rinnova con lo stesso comando
-//      di DidUP (signinSilent, senza ricaricare la pagina);
-//   2. ogni 4 minuti fa una richiesta autenticata di sola lettura.
-// Ricaricare la pagina non serve: DidUP rilegge lo stesso token.
+//   • se non la usi da KEEPALIVE_IDLE_MIN minuti (nessun clic, tasto,
+//     movimento del mouse o cambio di schermata: sessione.js) la ricarica,
+//     come il tasto Ricarica del browser. Ogni tuo uso o ricarica fa
+//     ripartire il conteggio, quindi mentre lavori non succede mai;
+//   • se la sessione è già scaduta, la ricarica dopo un minuto di inattività:
+//     con il token scaduto DidUP passa dalla pagina di accesso di Argo, che
+//     con «Ricordami» fa rientrare senza SPID;
+//   • non ricarica mai se è aperta una finestra di DidUP (es. la modifica di
+//     una lezione), la guida o Firma/Appello sta lavorando.
 // ---------------------------------------------------------------------
 
 const KEEPALIVE_ALARM = 'argo-keepalive';
+const SESSION_LOG_MAX = 10;
 
 async function ensureKeepAliveAlarm() {
   const a = await chrome.alarms.get(KEEPALIVE_ALARM);
   if (!a) await chrome.alarms.create(KEEPALIVE_ALARM, { delayInMinutes: 1, periodInMinutes: 1 });
 }
 
-// Eseguita nella pagina (world MAIN). Lo stato tra un giro e l'altro resta nella pagina.
-async function keepAliveInPage(pingEveryMs, renewBeforeSec) {
-  const E = window.Ext, W = window.WSX;
-  if (!E || !E.Ajax || typeof window.getUrlBase !== 'function') return { state: 'not-ready' };
-  const headersNow = () => Object.assign({}, E.Ajax.getDefaultHeaders && E.Ajax.getDefaultHeaders());
-  if (!headersNow().Authorization) return { state: 'not-logged' };
-  const st = window.__argoBoosterKa || (window.__argoBoosterKa = { lastPing: 0, lastRenewTry: 0, lastRenew: 0, expired: false });
-  const out = { state: 'ok', pinged: false, renewed: false };
-  const errText = e => String((e && (e.error || e.message)) || e);
-
-  // 1. Token di accesso
+// Eseguita nella pagina (world MAIN): stato della sessione e se la pagina si può ricaricare.
+async function sessionInPage() {
+  const E = window.Ext, W = window.WSX, root = document.documentElement;
+  const num = v => Number(v) || null;
+  const out = { state: 'ok', loadedAt: num(root.dataset.argoBoosterLoadedAt), lastActivity: num(root.dataset.argoBoosterActivity) };
+  if (!E || !E.Ajax || typeof window.getUrlBase !== 'function') { out.state = 'not-ready'; return out; }
+  const headers = Object.assign({}, E.Ajax.getDefaultHeaders && E.Ajax.getDefaultHeaders());
+  if (!headers.Authorization) { out.state = 'not-logged'; return out; }
+  const shown = el => {
+    const r = el.getBoundingClientRect();
+    return r.width > 0 && r.height > 0 && r.right > 0 && r.bottom > 0 && r.left < window.innerWidth && r.top < window.innerHeight &&
+      getComputedStyle(el).visibility !== 'hidden';
+  };
+  const EXPIRED_TEXT = /sessione\s+scaduta|accesso non consentito|eseguire il login/i;
+  // 1. DidUP ha già mostrato «Sessione scaduta»?
+  const boxes = [...document.querySelectorAll('.x-window, .x-message-box')].filter(shown);
+  let expiredBox = false;
+  try {
+    expiredBox = Boolean(E.ComponentQuery && E.ComponentQuery.query('box-sessione-scaduta-view').some(c => c.isVisible && c.isVisible()));
+  } catch (e) { /* ignora */ }
+  if (expiredBox) { out.state = 'expired'; out.why = 'box'; }
+  else if (boxes.some(b => EXPIRED_TEXT.test(b.textContent || ''))) { out.state = 'expired'; out.why = 'msg'; }
+  // 2. Token di accesso
   const mgr = W && W.util && W.util.userManager;
-  let user = null;
   if (mgr && typeof mgr.getUser === 'function') {
-    try { user = await mgr.getUser(); } catch (e) { out.tokenError = errText(e); }
-  } else {
-    out.noOidc = true;
-  }
-  if (user && typeof user.expires_in === 'number') {
-    out.expiresIn = user.expires_in;
-    if (user.expires_in <= renewBeforeSec && Date.now() - st.lastRenewTry > 50000 && typeof mgr.signinSilent === 'function') {
-      st.lastRenewTry = Date.now();
-      out.renewTried = true;
-      try {
-        const nu = await mgr.signinSilent();
-        if (nu && nu.access_token) {
-          if (W.util.handleAuthSessionRenewed) W.util.handleAuthSessionRenewed(nu);
-          else E.Ajax.setDefaultHeaders(Object.assign(headersNow(), { Authorization: 'Bearer ' + nu.access_token }));
-          out.renewed = true;
-          out.expiresIn = nu.expires_in;
-          st.lastRenew = Date.now();
-        } else {
-          out.renewError = 'nessun token ricevuto';
-        }
-      } catch (e) {
-        out.renewError = errText(e);
-      }
-    }
-  }
-
-  // 2. Richiesta autenticata (come quelle del registro)
-  if (out.renewed || Date.now() - st.lastPing >= pingEveryMs) {
-    st.lastPing = Date.now();
-    out.pinged = true;
     try {
-      const res = await fetch(window.getUrlBase() + 'archiviostampe/struttura', {
-        method: 'GET', headers: Object.assign(headersNow(), { 'Content-Type': 'application/json' }), credentials: 'include', cache: 'no-store'
-      });
-      try { await res.body?.cancel(); } catch (e) { /* ignora */ }
-      out.httpStatus = res.status;
-      if ([401, 402, 406].includes(res.status)) out.state = 'expired';
-      else if (!res.ok) out.state = 'error';
-    } catch (e) {
-      out.state = 'error';
-      out.error = errText(e);
-    }
+      const user = await mgr.getUser();
+      if (user && user.expires_at) out.tokenExpiresAt = user.expires_at * 1000;
+      if (user && user.expired && out.state === 'ok') { out.state = 'expired'; out.why = 'token'; }
+    } catch (e) { /* ignora */ }
   }
-  if (user && user.expired && !out.renewed) out.state = 'expired';
-  out.firstExpired = out.state === 'expired' && !st.expired;
-  st.expired = out.state === 'expired';
-  out.lastRenew = st.lastRenew;
+  // 3. Si può ricaricare senza far perdere niente?
+  if (root.dataset.argoBoosterBusy) out.busy = 'Firma ora o Appello sta lavorando';
+  else if (document.querySelector('[data-argo-assistant="guide"]')) out.busy = 'è aperta la guida dell\'estensione';
+  else if (boxes.some(b => !b.classList.contains('x-message-box') && !EXPIRED_TEXT.test(b.textContent || ''))) {
+    out.busy = 'è aperta una finestra di DidUP (per esempio la modifica di una lezione)';
+  } else {
+    const a = document.activeElement;
+    if (a && a.tagName === 'TEXTAREA' && a.value) out.busy = 'stai scrivendo in una casella';
+  }
   return out;
 }
 
-function describeRenewError(err) {
-  if (/login_required|interaction_required|consent_required/i.test(err || '')) {
-    return 'Argo non permette di rinnovare l\'accesso senza di te: serve un nuovo accesso con SPID o CIE';
+// Stato per scheda tra un giro e l'altro (ultima ricarica e perché).
+let kaMemory = {};
+async function loadKaTabs() {
+  try { return (await chrome.storage.session.get('kaTabs')).kaTabs || {}; } catch (e) { return kaMemory; }
+}
+async function saveKaTabs(tabs) {
+  try { await chrome.storage.session.set({ kaTabs: tabs }); } catch (e) { kaMemory = tabs; }
+}
+
+function currentIdleMin(stored) {
+  const n = Number(stored);
+  return n >= KEEPALIVE_IDLE_MIN_FLOOR && n <= KEEPALIVE_IDLE_MIN ? n : KEEPALIVE_IDLE_MIN;
+}
+
+// Ogni scadenza osservata viene annotata (Impostazioni → Sessione): serve a
+// capire quanto dura davvero la sessione. Se il server l'ha chiusa prima
+// della ricarica, la soglia di inattività si accorcia.
+async function noteExpiry(r, idleMs, idleMin, now) {
+  const { sessionLog = [] } = await chrome.storage.local.get('sessionLog');
+  const entry = {
+    at: now, why: r.why,
+    sinceLoadMin: r.loadedAt ? Math.round((now - r.loadedAt) / 60000) : null,
+    idleMin: Math.round(idleMs / 60000)
+  };
+  const out = { sessionLog: [entry, ...sessionLog].slice(0, SESSION_LOG_MAX) };
+  if (r.why === 'msg' && !r.busy && entry.idleMin <= idleMin + 2) {
+    const shorter = Math.max(KEEPALIVE_IDLE_MIN_FLOOR, Math.floor(entry.idleMin * 0.6));
+    if (shorter < idleMin) out.keepAliveIdleMin = shorter;
   }
-  if (/timeout/i.test(err || '')) return 'il server di Argo non ha risposto in tempo';
-  return err || 'errore sconosciuto';
+  await chrome.storage.local.set(out);
+}
+
+function expiredText(r) {
+  if (r.busy) return `È aperta una finestra di DidUP: non ricarico la pagina per non farti perdere quello che stai scrivendo. Copialo, poi premi «Ricarica ora».`;
+  return 'Ricarico il registro appena smetti di usarlo (dopo un minuto). Se all\'accesso era spuntato «Ricordami», Argo ti fa rientrare senza SPID.';
 }
 
 let keepAliveRunning = false;
@@ -263,41 +278,78 @@ async function keepAliveTick() {
   keepAliveRunning = true;
   try {
     const s = await loadSettings();
-    const tabs = (await chrome.tabs.query({ url: ARGO_TABS })).filter(t => isArgoDashboardUrl(t.url, s));
+    const all = await chrome.tabs.query({ url: ARGO_TABS });
+    const tabs = all.filter(t => isArgoDashboardUrl(t.url, s));
     // Con il mantenimento attivo Chrome non deve "scaricare" la scheda (Risparmio memoria).
     for (const t of tabs) {
       if (t.autoDiscardable !== !s.keepAliveEnabled) chrome.tabs.update(t.id, { autoDiscardable: !s.keepAliveEnabled }).catch(() => {});
     }
     if (!s.keepAliveEnabled) return;
+    const now = Date.now();
+    const kt = await loadKaTabs();
+    const idleMin = currentIdleMin((await chrome.storage.local.get('keepAliveIdleMin')).keepAliveIdleMin);
     let status = null;
+
+    // Ricaricata da poco ed è finita sulla pagina di accesso: Argo chiede di nuovo SPID o CIE.
+    for (const t of all) {
+      const k = kt[t.id];
+      if (k && k.reloadAt && !k.loginNoted && now - k.reloadAt < 5 * 60000 && !isArgoDashboardUrl(t.url, s)) {
+        k.loginNoted = true;
+        status = { time: now, tabId: t.id, ok: false, expired: true, action: 'login', loginRequired: true, idleMin,
+          lastReloadAt: k.reloadAt, lastReloadReason: k.reason };
+      }
+    }
+
     for (const tab of tabs) {
       if (tab.discarded) continue;
       let r = null;
       try {
-        const res = await chrome.scripting.executeScript({
-          target: { tabId: tab.id }, world: 'MAIN', func: keepAliveInPage,
-          args: [KEEPALIVE_PING_EVERY_SEC * 1000, KEEPALIVE_RENEW_BEFORE_SEC]
-        });
+        const res = await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: 'MAIN', func: sessionInPage });
         r = res && res[0] && res[0].result;
       } catch (e) {
         r = null;            // scheda non accessibile in questo momento
       }
       if (!r || r.state === 'not-ready' || r.state === 'not-logged') continue;
-      if (r.firstExpired) {
-        const text = r.renewError ? `${describeRenewError(r.renewError)}.` : 'Il server di Argo ha chiuso la sessione.';
-        chrome.tabs.sendMessage(tab.id, { type: 'argo-session-expired', text }).catch(() => {});
-      }
-      if (!r.pinged && !r.renewed && !r.renewTried && r.state === 'ok') continue;
+      const k = kt[tab.id] || (kt[tab.id] = {});
+      const lastUse = Math.max(r.lastActivity || 0, r.loadedAt || 0) || tab.lastAccessed || now;
+      const idleMs = Math.max(0, now - lastUse);
       const entry = {
-        time: Date.now(), tabId: tab.id, ok: r.state === 'ok', expired: r.state === 'expired',
-        action: r.renewed ? 'renew' : r.pinged ? 'ping' : 'check', httpStatus: r.httpStatus,
-        tokenExpiresAt: typeof r.expiresIn === 'number' ? Date.now() + r.expiresIn * 1000 : null,
-        lastRenewAt: r.lastRenew || null, renewError: r.renewError ? describeRenewError(r.renewError) : null,
-        error: r.error || null, noOidc: Boolean(r.noOidc)
+        time: now, tabId: tab.id, ok: r.state === 'ok', expired: r.state === 'expired', why: r.why || null,
+        action: 'check', idleMin, idleSec: Math.round(idleMs / 1000), lastUse, nextReloadAt: lastUse + idleMin * 60000,
+        tokenExpiresAt: r.tokenExpiresAt || null, busy: r.busy || null,
+        lastReloadAt: k.reloadAt || null, lastReloadReason: k.reason || null
       };
-      // Con più schede del registro conta quella che va meglio.
-      if (!status || (entry.ok && !status.ok)) status = entry;
+      let reload = null;
+      if (r.state === 'expired') {
+        if (k.expiredLoadedAt !== (r.loadedAt || 0)) {
+          // prima volta che questa pagina risulta scaduta
+          k.expiredLoadedAt = r.loadedAt || 0;
+          await noteExpiry(r, idleMs, idleMin, now);
+          chrome.tabs.sendMessage(tab.id, { type: 'argo-session-expired', text: expiredText(r) }).catch(() => {});
+        }
+        if (r.busy) entry.action = 'wait-busy';
+        else if (idleMs < KEEPALIVE_EXPIRED_IDLE_SEC * 1000) entry.action = 'wait-idle';
+        else if (k.expiredReloadAt && now - k.expiredReloadAt < KEEPALIVE_EXPIRED_RETRY_MIN * 60000) entry.action = 'wait-retry';
+        else { reload = 'scaduta'; k.expiredReloadAt = now; }
+      } else if (idleMs >= idleMin * 60000) {
+        if (r.busy) entry.action = 'wait-busy';
+        else reload = 'inattività';
+      }
+      if (reload) {
+        try {
+          await chrome.tabs.reload(tab.id);
+          Object.assign(k, { reloadAt: now, reason: reload, loginNoted: false });
+          Object.assign(entry, { action: 'reload', reason: reload, lastReloadAt: now, lastReloadReason: reload, nextReloadAt: now + idleMin * 60000 });
+        } catch (e) {
+          Object.assign(entry, { action: 'error', error: String((e && e.message) || e) });
+        }
+      }
+      // Con più schede del registro conta quella che va meglio (o quella appena ricaricata).
+      if (!status || entry.action === 'reload' || (entry.ok && !status.ok && status.action !== 'reload')) status = entry;
     }
+    // Schede chiuse: si dimenticano.
+    for (const id of Object.keys(kt)) if (!all.some(t => String(t.id) === id)) delete kt[id];
+    await saveKaTabs(kt);
     if (status) await chrome.storage.local.set({ keepAliveStatus: status });
   } finally {
     keepAliveRunning = false;
@@ -324,7 +376,7 @@ async function injectIntoOpenArgoTabs() {
     const target = { tabId: tab.id };
     chrome.scripting.executeScript({ target, files: ['page-bridge.js'], world: 'MAIN' })
       .then(() => chrome.scripting.executeScript({
-        target, files: ['settings.js', 'content-common.js', 'argomenti.js', 'azioni.js', 'toolbar.js']
+        target, files: ['settings.js', 'content-common.js', 'sessione.js', 'argomenti.js', 'azioni.js', 'toolbar.js']
       }))
       .catch(() => { /* scheda non accessibile (es. scartata) */ });
   }
@@ -376,10 +428,6 @@ chrome.storage.onChanged.addListener((changes, area) => {
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (!msg) return;
   switch (msg.type) {
-    case 'relogin-tab':
-      // «Accedi di nuovo» dall'avviso di sessione scaduta nella pagina.
-      if (sender.tab) loadSettings().then(st => restartLoginIn(sender.tab, st)).then(() => sendResponse({ ok: true }), () => sendResponse({ ok: false }));
-      return true;
     case 'open-options':
       chrome.runtime.openOptionsPage();
       return;

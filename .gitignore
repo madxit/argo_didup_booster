@@ -1,3 +1,6 @@
 # File di sistema
 .DS_Store
 desktop.ini
+
+# Pacchetto creato dal workflow di rilascio
+dist/

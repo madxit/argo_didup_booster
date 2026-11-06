@@ -50,7 +50,7 @@ try {
     if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
     return r.result.value;
   };
-  await swEval(`chrome.storage.local.set({ codiceScuola: 'SG18328', autoLogin: false, keepAliveEnabled: false })`);
+  await swEval(`chrome.storage.local.set({ codiceScuola: 'SG18328', autoLogin: false, keepAliveEnabled: false, guidaPulsanti: false, guidaArgomenti: false })`);
   for (const t of (await b.send('Target.getTargets')).targetInfos) if (t.url.includes('/options.html')) await b.send('Target.closeTarget', { targetId: t.targetId });
 
   async function scenario(label, cfg, action, keepOpen = false) {
@@ -102,12 +102,29 @@ try {
   r = await scenario('Appello con ora non firmata', {}, 'appello', true);
   check('errore esplicito quando «Appello» è disattivato', r.out.result && !r.out.result.ok && /disattivato/.test(r.out.result.error), r.out.result && r.out.result.error);
 
-  // Mantenimento della sessione: il service worker vero esegue il controllo nella scheda (mondo MAIN)
+  // Mantenimento della sessione: il service worker vero controlla la scheda (mondo MAIN) e la ricarica se non la usi
   await swEval(`chrome.storage.local.set({ keepAliveEnabled: true })`);
   await sleep(300);
+  // sessione.js (mondo isolato) annota l'uso: un movimento del mouse aggiorna l'ora
+  const { sessionId: kaS } = await b.send('Target.attachToTarget', { targetId: r.targetId, flatten: true });
+  const kaEval = async expr => (await b.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true }, kaS)).result.value;
+  const loadedAt = Number(await kaEval(`document.documentElement.dataset.argoBoosterLoadedAt`));
+  await sleep(3200);
+  await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 400, y: 500 }, kaS);
+  await b.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 420, y: 520 }, kaS);
+  const act = Number(await kaEval(`document.documentElement.dataset.argoBoosterActivity`));
+  check('mondo isolato: caricamento e ultimo uso annotati nella pagina (movimento del mouse)', loadedAt > Date.now() - 120000 && act > loadedAt, JSON.stringify({ loadedAt, act }));
   await swEval(`keepAliveTick()`);
-  const ka = await swEval(`chrome.storage.local.get('keepAliveStatus').then(x => x.keepAliveStatus)`);
-  check('mantenimento: richiesta autenticata dalla scheda del registro, stato salvato', ka && ka.ok && ka.action === 'ping' && ka.httpStatus === 200 && ka.noOidc === true, JSON.stringify(ka));
+  let ka = await swEval(`chrome.storage.local.get('keepAliveStatus').then(x => x.keepAliveStatus)`);
+  check('mantenimento: controllo nella scheda del registro appena usata, nessuna ricarica, stato salvato', ka && ka.ok && ka.action === 'check' && ka.lastUse === act, JSON.stringify(ka));
+  // 11 minuti senza uso (si sposta indietro l'ora annotata): il service worker ricarica la scheda
+  await kaEval(`window.__primaDellaRicarica = true; document.documentElement.dataset.argoBoosterLoadedAt = document.documentElement.dataset.argoBoosterActivity = String(Date.now() - 11 * 60000);`);
+  await swEval(`keepAliveTick()`);
+  ka = await swEval(`chrome.storage.local.get('keepAliveStatus').then(x => x.keepAliveStatus)`);
+  await sleep(2500);
+  const reloaded = await kaEval(`window.__primaDellaRicarica === undefined && !!window.__didup && Number(document.documentElement.dataset.argoBoosterLoadedAt) > Date.now() - 10000`);
+  check('11 minuti senza uso: la pagina del registro viene ricaricata e il conteggio riparte', ka && ka.action === 'reload' && ka.reason === 'inattività' && reloaded, JSON.stringify(ka));
+  await swEval(`chrome.storage.local.set({ keepAliveEnabled: false })`);
   const alarm = await swEval(`chrome.alarms.get('argo-keepalive')`);
   check('allarme del mantenimento attivo ogni minuto', alarm && alarm.periodInMinutes === 1, JSON.stringify(alarm));
   // clic sull'icona dentro il registro con la sessione valida → impostazioni
@@ -116,6 +133,17 @@ try {
   const opts = (await b.send('Target.getTargets')).targetInfos.some(t => t.url.includes('/options.html'));
   check('clic sull\'icona nel registro con la sessione valida: si aprono le impostazioni', opts);
   await b.send('Target.closeTarget', { targetId: r.targetId });
+
+  // Guida della prima volta con l'estensione vera
+  await swEval(`chrome.storage.local.set({ guidaPulsanti: true })`);
+  const { targetId: gT } = await b.send('Target.createTarget', { url: `https://www.portaleargo.it/voti/?classic#${encodeURIComponent(JSON.stringify({ times }))}` });
+  const { sessionId: gS } = await b.send('Target.attachToTarget', { targetId: gT, flatten: true });
+  const gEval = async expr => (await b.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true }, gS)).result.value;
+  const guide = await waitFor(async () => gEval(`(() => { const g = document.querySelector('[data-argo-assistant="guide"]'); return g && g.shadowRoot ? g.shadowRoot.querySelector('.text').textContent : null; })()`),
+    { label: 'guida', timeout: 15000 }).catch(() => null);
+  const stored = await swEval(`chrome.storage.local.get('guidaPulsanti').then(x => x.guidaPulsanti)`);
+  check('prima apertura del registro: guida dei pulsanti (aggiunti da «Argo DidUP Booster»), poi spenta', /Argo DidUP Booster/.test(guide || '') && stored === false, guide);
+  await b.send('Target.closeTarget', { targetId: gT });
 } catch (e) {
   console.log('FAILED', e.stack || e.message);
   results.push(false);

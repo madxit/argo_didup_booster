@@ -20,8 +20,12 @@ const freshCopy = copyExtension;
 
 async function session(b, targetId) {
   const { sessionId } = await b.send('Target.attachToTarget', { targetId, flatten: true });
+  // limite di tempo: una pagina che non risponde (es. durante un cambio di sito) non deve bloccare il test
   const ev = async expr => {
-    const r = await b.send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }, sessionId);
+    const r = await Promise.race([
+      b.send('Runtime.evaluate', { expression: expr, awaitPromise: true, returnByValue: true }, sessionId),
+      new Promise((_, reject) => setTimeout(() => reject(new Error('timeout della pagina')), 8000))
+    ]);
     if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
     return r.result.value;
   };
@@ -73,7 +77,8 @@ async function followLogin(b, { timeout = 45000, stopAtHost = null, shotPrefix =
     last = p;
     if (p.ready === 'complete' && shotPrefix && shots < seen.length) {
       await sleep(700);
-      const { data } = await b.send('Page.captureScreenshot', { format: 'png' }, s.sessionId).catch(() => ({}));
+      const { data } = await Promise.race([b.send('Page.captureScreenshot', { format: 'png' }, s.sessionId),
+        new Promise(r => setTimeout(r, 8000))]).catch(() => ({})) || {};
       if (data) writeFileSync(join(SHOTS, `${shotPrefix}-${++shots}-${p.host}.png`), Buffer.from(data, 'base64'));
     }
     if (stopAtHost && p.host && stopAtHost.test(p.host) && p.ready === 'complete') break;
@@ -177,9 +182,19 @@ if (!only || only === 'onlogin') await withBrowser(async b => {
   const url = await s.ev('location.href');
   const { targetInfos } = await b.send('Target.getTargets');
   const tabId = await sw.ev(`chrome.tabs.query({ url: 'https://*.portaleargo.it/*' }).then(t => t[0].id)`);
+  // il modulo che parte verso Argo: «Ricordami» deve arrivare come remember_me=true
+  await b.send('Network.enable', {}, s.sessionId);
+  let posted = null;
+  const offNet = b.on(msg => {
+    if (msg.method === 'Network.requestWillBeSent' && msg.sessionId === s.sessionId && /\/auth\/eid-gateway\/sso/.test(msg.params.request.url)) {
+      posted = msg.params.request.postData || '';
+    }
+  });
   const res = await sw.ev(`goToRegistro({ id: ${tabId}, url: ${JSON.stringify(url)} })`);
   check('icon click starts the login on the same page', res && res.action === 'login-here', JSON.stringify(res));
   const r = await followLogin(b, { stopAtHost: /poste\.it$/ });
+  offNet();
+  check('«Ricordami» ticked: the real Argo form sends remember_me=true', /(^|&)remember_me=true(&|$)/.test(posted || ''), String(posted).replace(/challenge=[^&]*/, 'challenge=…'));
   check('reached Poste ID login page', /posteid\.poste\.it$/.test(r.last.host), r.seen.join(' → '));
   rmSync(dir, { recursive: true, force: true });
 });

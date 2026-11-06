@@ -62,6 +62,7 @@
       },
       create: rec('tabs.create'),
       update: rec('tabs.update'),
+      reload: rec('tabs.reload'),
       get: rec('tabs.get', id => ({ id })),
       sendMessage: rec('tabs.sendMessage', () => window.__tabsSendMessageReply),
       connect(tabId, info) {
