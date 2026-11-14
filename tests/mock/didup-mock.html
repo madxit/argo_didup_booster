@@ -46,7 +46,9 @@
     utente: 'ROSSI MARIO', docenteRiga: 'ROSSI MARIO', pk: true,
     // ore che la Home mostra tra le tue ma che nel registro sono assegnate a un collega (es. ["4B#3"]):
     // come in DidUP, la riga ha l'icona «+» e il testo «prevista per un altro docente»
-    righeAltrui: []
+    righeAltrui: [],
+    // icone senza testo (aria-label vuoto): la riga si può riconoscere solo dal nome nella colonna «Docente»
+    senzaEtichette: false
   };
   const cfg = Object.assign({}, DEFAULT, JSON.parse(decodeURIComponent(location.hash.slice(1) || '%7B%7D')));
   const signed = new Set(cfg.signed);
@@ -93,6 +95,7 @@
   const homeIconFor = (classe, n) => cfg.iconCls || ((signed.has(`${classe}#${n}`) || (cfg.homeFirmataDaAltri && coDoc(classe, n) && coDoc(classe, n).firmata)) ? 'icon-ora-firmata' : 'icon-ora-da-firmare');
   // Testi dell'icona come in renderIconaFirma di DidUP.
   function ariaFor(cls, n, mine) {
+    if (cfg.senzaEtichette) return '';
     if (mine) return cls === 'icon-ora-firmata' ? `${n}° ora Firmata. Clicca per eliminare la firma` : `${n}° ora non Firmata. Clicca per firmare`;
     return `${n}° ora ${cls === 'icon-ora-firmata' ? 'firmata da ' : 'prevista per '} un altro docente. Riga non modificabile, ma puoi aggiungere una tua lezione premendo sul pulsante +.`;
   }
