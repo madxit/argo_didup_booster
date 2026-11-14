@@ -194,7 +194,7 @@ const URLS = { argoLoginUrl: `${BASE}/auth/sso/login`, argoDashboardPattern: `${
 async function setStore(obj, extra = '') {
   await navigate(`${BASE}/ext/options.html`, 400);
   await evaluate(`localStorage.clear(); ${extra}
-    localStorage.setItem('__mockStore', JSON.stringify(${JSON.stringify({ schemaVersion: 2, disclaimer: DISCLAIMER_OK, ...obj })}));`);
+    localStorage.setItem('__mockStore', JSON.stringify(${JSON.stringify({ schemaVersion: 2, disclaimer: DISCLAIMER_OK, docenteCognome: 'ROSSI', docenteNome: 'MARIO', ...obj })}));`);
 }
 const toast = () => evaluate(`const h = document.querySelector('[data-argo-assistant="toast"]'); return h ? h.shadowRoot.querySelector('.t').innerText : null;`);
 

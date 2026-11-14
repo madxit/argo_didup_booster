@@ -69,19 +69,16 @@
         <div class="field">
           <div class="name-pair">
             <div>
-              <label for="docenteCognome">Cognome del docente</label>
+              <label for="docenteCognome">Cognome del docente <span class="req">*</span></label>
               <input id="docenteCognome" autocomplete="off" placeholder="es. ROSSI">
             </div>
             <div>
-              <label for="docenteNome">Nome del docente</label>
+              <label for="docenteNome">Nome del docente <span class="req">*</span></label>
               <input id="docenteNome" autocomplete="off" placeholder="es. MARIO">
             </div>
           </div>
-          <p class="hint">Facoltativi. Scrivili come compaiono nella colonna «Docente» del registro, dove Argo mette
-            <strong>prima il cognome e poi il nome</strong> (es. ROSSI MARIO); maiuscole e accenti non contano.
-            «Firma ora» riconosce le tue righe da ciò che indica DidUP (l'icona arancione «da firmare» compare solo
-            sulle tue): cognome e nome servono solo quando DidUP non lo indica, per esempio nelle classi articolate
-            e in compresenza.</p>
+          <p class="hint">Come nella colonna «Docente» del registro (es. ROSSI MARIO): servono a riconoscere le
+            tue righe. <strong>Senza, Firma e Appello restano disattivati.</strong></p>
         </div>
       </div>
 
@@ -153,13 +150,20 @@
     <section class="card" id="sec-funzioni">
       <h2>🧩 Funzioni nel registro</h2>
       <p class="hint">Scegli quali funzioni l'estensione aggiunge al registro. Le modifiche si vedono subito, anche nel registro già aperto.</p>
+      <p id="docente-missing" class="banner banner-warn" hidden>
+        <strong>Firma e Appello sono disattivati:</strong> manca il cognome o il nome del docente.
+        <a href="#sec-scuola" id="docente-missing-link">Inseriscili in «Scuola e accesso»</a>.
+      </p>
       <div class="feature-list">
-        <label class="feature">
-          <input type="checkbox" id="showFirma" class="switch">
-          <span class="feature-icon" id="fi-firma"></span>
-          <span class="feature-text"><strong>Firma ora</strong>
-            <small>Pulsante nella barra in alto: firma la tua lezione in corso (o la prossima, dopo averti chiesto il permesso).</small></span>
-        </label>
+        <div class="feature feature-firma">
+          <label class="feature-main">
+            <input type="checkbox" id="showFirma" class="switch">
+            <span class="feature-icon" id="fi-firma"></span>
+            <span class="feature-text"><strong id="firma-title">Firma ora</strong>
+              <small id="firma-desc"></small></span>
+          </label>
+          <div class="segmented compact" role="radiogroup" id="firma-mode-group" aria-label="Cosa fa il pulsante di firma"></div>
+        </div>
         <label class="feature">
           <input type="checkbox" id="showAppello" class="switch">
           <span class="feature-icon" id="fi-appello"></span>

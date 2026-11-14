@@ -5,7 +5,7 @@
 Estensione per **Google Chrome** pensata per i docenti che usano il registro elettronico **Argo DidUP**. Con un clic:
 
 - **Accesso automatico.** L'estensione compila il codice scuola, spunta «Ricordami», sceglie SPID (con il tuo provider) o CIE e ti porta all'autenticazione. A te resta solo confermare con l'app del provider o con la CIE.
-- **Firma ora.** Un pulsante nella barra del registro trova la tua lezione leggendo gli orari dalla pagina e la firma. Nelle classi articolate e in compresenza firma la **tua** riga, non quella del collega. Se l'ora non è in corso, prima ti chiede il permesso.
+- **Firma ora** oppure **Firma ore di oggi.** Un pulsante nella barra del registro trova la tua lezione leggendo gli orari dalla pagina e la firma; se preferisci, firma in una volta tutte le tue ore della giornata. Nelle classi articolate e in compresenza firma la **tua** riga, non quella del collega. Se l'ora non è in corso, prima ti chiede il permesso.
 - **Appello.** Un pulsante nella barra del registro apre l'appello della lezione più vicina all'ora attuale, da qualsiasi schermata.
 - **Argomenti e compiti.** Mentre modifichi una lezione, inserisci con un clic gli argomenti (in *Attività svolta*) e i compiti (in *Compiti*) che hai preparato per ogni disciplina.
 - **Sessione sempre attiva.** Quando non usi il registro da qualche minuto, l'estensione ricarica la pagina e la sessione riparte, anche con la scheda in secondo piano. Mentre lavori non succede mai.
@@ -85,7 +85,7 @@ Le impostazioni si aprono con un clic sull'icona quando sei già nel registro, o
 3. **Provider SPID**: lo stesso che scegli nella pagina del Ministero (Poste ID, Aruba ID, InfoCert ID, …). Con *"Scelgo ogni volta"* l'estensione apre l'elenco dei provider e lascia scegliere a te.
 4. **Accesso automatico**: con l'opzione attiva l'accesso parte appena si apre la pagina di accesso di Argo. Con l'opzione spenta parte solo quando premi l'icona.
 5. **Spunta «Ricordami»** (attiva in modo predefinito): spunta la casella *Ricordami* della pagina di accesso di Argo. Senza, dopo circa un'ora Argo chiede di nuovo SPID o CIE; con *Ricordami* rinnova l'accesso da solo. **Spegnila su un computer usato anche da altri**, per esempio il PC dell'aula.
-6. **Cognome** e **Nome** del docente (facoltativi, in due campi separati): scrivili come compaiono nella colonna *Docente* del registro, dove Argo mette **prima il cognome e poi il nome** (es. `ROSSI MARIO` → cognome `ROSSI`, nome `MARIO`). Maiuscole, accenti e apostrofi non contano. *Firma ora* li usa solo quando DidUP non indica di chi è una riga (vedi [Firma ora](#firma-ora)). Se arrivi da una versione precedente, il vecchio campo unico viene diviso da solo: controlla che la divisione sia giusta.
+6. **Cognome** e **Nome** del docente (in due campi separati): scrivili come compaiono nella colonna *Docente* del registro (es. `ROSSI MARIO` → cognome `ROSSI`, nome `MARIO`). Maiuscole, accenti e apostrofi non contano. Servono a riconoscere le tue righe: **senza, Firma e Appello restano disattivati** e i loro pulsanti non compaiono nel registro. Se arrivi da una versione precedente, il vecchio campo unico viene diviso da solo: controlla che la divisione sia giusta.
 
 ## Uso quotidiano
 
@@ -151,6 +151,19 @@ Se la Home mostra l'ora in corso come già firmata, l'estensione controlla nel r
 
 Sotto i pulsanti si apre un pannello che mostra passo per passo cosa è stato cliccato e perché è stata scelta quella lezione. Si chiude con la × o con un clic in qualsiasi punto fuori dal pannello.
 
+### Firma ore di oggi
+
+In **Impostazioni → Funzioni nel registro**, nella riga della firma, puoi scegliere che cosa fa il pulsante: **Firma ora** (come descritto sopra) oppure **Firma ore di oggi**. Il pulsante resta uno solo: cambia la scritta che compare al passaggio del mouse.
+
+Con *Firma ore di oggi* l'estensione:
+
+1. clicca **Home** e legge le tue lezioni di oggi;
+2. ti mostra l'**elenco delle ore non ancora firmate** (es. *3A 1ª, 2ª · 4B 3ª · 5C 5ª*) e chiede una sola conferma: con **Non firmare**, o chiudendo il pannello, non tocca nulla;
+3. entra nel registro di ogni classe, una alla volta, e clicca l'icona arancione *da firmare* delle **tue** righe, con le stesse regole di *Firma ora* (mai un'ora già firmata, mai la riga di un collega);
+4. alla fine riepiloga le ore firmate. Se un'ora non si può firmare (per esempio nel registro è assegnata a un collega) la salta, firma le altre e ti dice quale resta da firmare a mano.
+
+Tieni presente che firma anche le ore non ancora iniziate: usala se nella tua scuola è permesso firmare in anticipo.
+
 ### Appello
 
 Il pulsante **Appello** clicca *Home* e sceglie la lezione più coerente con l'ora attuale. Per primo cerca quella **in corso**. Se non c'è, prende quella che **inizia entro 15 minuti**, poi quella **appena finita**, infine la prossima. Poi entra nel registro di quella classe e apre l'appello.
@@ -163,7 +176,9 @@ Quando qualcosa non va, il passo in **rosso** dice esattamente cosa è stato cli
 
 ### Scegliere le funzioni e rivedere la guida
 
-Nelle **Impostazioni → Funzioni nel registro** scegli quali funzioni l'estensione aggiunge al registro: **Firma ora**, **Appello**, **Argomenti e compiti**. Quelle spente spariscono subito, anche dal registro già aperto; se le spegni entrambe, nella barra di DidUP non resta nessun pulsante.
+Nelle **Impostazioni → Funzioni nel registro** scegli quali funzioni l'estensione aggiunge al registro: la **firma**, l'**Appello**, **Argomenti e compiti**. Quelle spente spariscono subito, anche dal registro già aperto; se spegni firma e Appello, nella barra di DidUP non resta nessun pulsante. Nella riga della firma scegli anche la modalità: **Firma ora** oppure [**Firma ore di oggi**](#firma-ore-di-oggi).
+
+Firma e Appello richiedono **cognome e nome del docente** (*Scuola e accesso*): finché mancano, i due interruttori sono bloccati e un avviso lo ricorda.
 
 Nella stessa sezione ci sono le caselle della **guida**: una per i pulsanti della barra, una per *Argomenti e compiti*. Dopo che la guida è stata mostrata la casella si spegne da sola; spuntala per rivederla la prossima volta.
 
@@ -270,7 +285,7 @@ Con la disinstallazione Chrome cancella le impostazioni dell'estensione: se vuoi
 | «Il pulsante Appello è disattivato» | In DidUP l'appello si apre dopo aver firmato l'ora: usa prima **Firma ora**. |
 | Dopo circa un'ora Argo chiede di nuovo SPID o CIE | Controlla che in *Impostazioni → Scuola e accesso* sia attiva **Spunta «Ricordami»** e rifai l'accesso una volta: da lì in poi Argo rinnova l'accesso da solo. La riga di stato in *Impostazioni → Sessione* dice quando e perché la sessione è scaduta. |
 | Il registro si è ricaricato da solo | È il mantenimento della sessione: succede solo dopo 10 minuti senza usarlo e mai con una finestra di DidUP aperta. Puoi spegnerlo in *Impostazioni → Sessione*. |
-| Non vedo i pulsanti Firma e Appello | Controlla che siano attivi in *Impostazioni → Funzioni nel registro*. Compaiono nella barra in alto del registro dopo l'accesso; se la barra è nascosta (schermata ingrandita) stanno in basso a destra. Prova a cambiare posizione o a ricaricare la pagina. |
+| Non vedo i pulsanti Firma e Appello | Controlla di aver scritto **Cognome** e **Nome** in *Impostazioni → Scuola e accesso*: senza, restano disattivati. Poi controlla che siano attivi in *Impostazioni → Funzioni nel registro*. Compaiono nella barra in alto del registro dopo l'accesso; se la barra è nascosta (schermata ingrandita) stanno in basso a destra. Prova a cambiare posizione o a ricaricare la pagina. |
 | Il pulsante «Argomenti e compiti» non compare | Controlla che sia attivo in *Impostazioni → Funzioni nel registro*. Compare solo nella schermata di **modifica** di una lezione, a destra sulla riga di *Registro di classe · Docenti ed alunni*. |
 | Voglio rivedere la guida | Spunta la casella della guida in *Impostazioni → Funzioni nel registro*. |
 | Un passo in rosso nel pannello | Leggi cosa non è stato trovato e controlla di essere nel registro DidUP. Se DidUP è cambiato, segnala il messaggio su [GitHub](https://github.com/madxit/argo_didup_booster/issues). |

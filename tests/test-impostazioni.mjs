@@ -225,6 +225,49 @@ await evaluate(`document.getElementById('showAppello').click(); document.getElem
 await sleep(200);
 vis = await visibleInPreview();
 check(vis.buttons.join() === 'firma,appello' && vis.pill && (await store()).guidaPulsanti === true, '…e rimessi', JSON.stringify(vis));
+
+// Modalità del pulsante di firma: «Firma ora» oppure «Firma ore di oggi»
+const firmaRow = () => evaluate(`const radios = [...document.querySelectorAll('input[name=firmaMode]')];
+  const b = document.getElementById('pv-buttons').shadowRoot.querySelector('[data-action=firma]');
+  return { labels: radios.map(r => r.nextElementSibling.textContent).join('|'), checked: (radios.find(r => r.checked) || {}).value, disabled: radios.map(r => r.disabled).join(),
+    title: document.getElementById('firma-title').textContent, desc: document.getElementById('firma-desc').textContent,
+    preview: b ? b.getAttribute('aria-label') + ' / ' + b.querySelector('.tip').textContent : null,
+    missing: document.getElementById('docente-missing').getBoundingClientRect().height > 0,
+    switches: ['showFirma', 'showAppello', 'showArgomenti'].map(id => document.getElementById(id).disabled).join() };`);
+let fr = await firmaRow();
+check(fr.labels === 'Firma ora|Firma ore di oggi' && fr.checked === 'ora' && fr.title === 'Firma ora' && /Firma ora \(Argo DidUP Booster\)/.test(fr.preview) && !fr.missing,
+  'riga «Firma»: selettore «Firma ora» / «Firma ore di oggi», predefinito «Firma ora»', JSON.stringify(fr));
+await evaluate(`document.querySelector('input[name=firmaMode][value=oggi]').click();`);
+await sleep(250);
+fr = await firmaRow();
+check((await store()).firmaMode === 'oggi' && fr.title === 'Firma ore di oggi' && /tutte le tue lezioni di oggi/.test(fr.desc) && /Firma ore di oggi \(Argo DidUP Booster\) \/ Firma ore di oggi: tutte/.test(fr.preview),
+  '«Firma ore di oggi»: salvata; titolo, descrizione e pulsante dell\'anteprima cambiano', JSON.stringify(fr));
+await evaluate(`document.getElementById('showFirma').click();`);
+await sleep(200);
+fr = await firmaRow();
+check(fr.disabled === 'true,true' && fr.preview === null && (await store()).firmaMode === 'oggi', 'pulsante di firma spento: il selettore della modalità si blocca (la scelta resta)', JSON.stringify(fr));
+await evaluate(`document.getElementById('showFirma').click(); document.querySelector('input[name=firmaMode][value=ora]').click();`);
+await sleep(250);
+check((await store()).firmaMode === 'ora' && (await firmaRow()).title === 'Firma ora', '…e si torna a «Firma ora»');
+check(await evaluate(`return sanitizeSettings({ firmaMode: 'boh' }).settings.firmaMode === 'ora' && sanitizeSettings({ firmaMode: 'oggi' }).settings.firmaMode === 'oggi'`), 'modalità di firma sconosciuta (import): torna «Firma ora»');
+
+// Senza cognome e nome del docente Firma e Appello restano disattivati
+await evaluate(`const el = document.getElementById('docenteNome'); el.value = ''; el.dispatchEvent(new Event('input'));`);
+await sleep(600);
+fr = await firmaRow(); vis = await visibleInPreview();
+check(fr.missing && fr.switches === 'true,true,false' && vis.buttons.length === 0 && vis.pill && (await store()).docenteNome === '',
+  'manca il nome del docente: avviso, interruttori di Firma e Appello bloccati, nessun pulsante nell\'anteprima (Argomenti e compiti resta)', JSON.stringify({ fr, vis }));
+await shot('03-funzioni-senza-docente', '#sec-funzioni');
+await evaluate(`const el = document.getElementById('docenteNome'); el.value = 'Mario'; el.dispatchEvent(new Event('input'));`);
+await sleep(600);
+fr = await firmaRow(); vis = await visibleInPreview();
+check(!fr.missing && fr.switches === 'false,false,false' && vis.buttons.join() === 'firma,appello', 'cognome e nome inseriti: Firma e Appello tornano attivi', JSON.stringify({ fr, vis }));
+await evaluate(`const el = document.getElementById('docenteNome'); el.value = 'MARIO'; el.dispatchEvent(new Event('input'));`);
+await sleep(600);
+// la sezione «Esporta / Importa» e l'anteprima non escono dai bordi
+check(await evaluate(`const m = (a, b) => document.querySelector(b).getBoundingClientRect().top - document.querySelector(a).getBoundingClientRect().bottom;
+  const f = document.querySelector('.pv-fieldset').getBoundingClientRect(), p = document.getElementById('preview').getBoundingClientRect();
+  return m('#sec-backup > .hint', '#sec-backup .btn-row') >= 12 && f.right <= p.right - 4;`), 'spazio tra testo e pulsanti di «Esporta / Importa»; nell\'anteprima il riquadro «Registro di classe» resta dentro i bordi');
 // la guida mostrata nel registro spegne la casella anche con le impostazioni aperte
 await evaluate(`await chrome.storage.local.set({ guidaArgomenti: false });`);
 await sleep(150);

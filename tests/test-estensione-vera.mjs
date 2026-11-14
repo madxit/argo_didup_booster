@@ -57,7 +57,7 @@ try {
   const oEval = async expr => (await b.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true }, oS)).result.value;
   const dlgOpen = optT && await waitFor(() => oEval(`(() => { const d = document.getElementById('disclaimer-dialog'); return !!(d && d.open && d.getBoundingClientRect().width > 300); })()`), { label: 'avvertenze', timeout: 10000 }).catch(() => false);
   check('prima installazione: si aprono le impostazioni con le avvertenze da accettare', Boolean(dlgOpen));
-  await swEval(`chrome.storage.local.set({ codiceScuola: 'SG18328', autoLogin: false, keepAliveEnabled: false, guidaPulsanti: false, guidaArgomenti: false })`);
+  await swEval(`chrome.storage.local.set({ codiceScuola: 'SG18328', docenteCognome: 'ROSSI', docenteNome: 'MARIO', autoLogin: false, keepAliveEnabled: false, guidaPulsanti: false, guidaArgomenti: false })`);
   const { targetId: nT } = await b.send('Target.createTarget', { url: `https://www.portaleargo.it/voti/?classic#${encodeURIComponent(JSON.stringify({ times }))}` });
   const { sessionId: nS } = await b.send('Target.attachToTarget', { targetId: nT, flatten: true });
   const nEval = async expr => (await b.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true }, nS)).result.value;

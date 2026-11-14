@@ -25,6 +25,10 @@
 //      firmare non contiene l'ora attuale (o non è nota), prima chiede il
 //      permesso nel pannello dei passi.
 //      Appello: clic sul pulsante "Appello" del registro di classe
+//   6. «Firma ore di oggi» (azione 'firma-oggi', scelta nelle impostazioni
+//      al posto di «Firma ora»): dopo una sola conferma con l'elenco, firma
+//      tutte le ore che la Home mostra da firmare, una classe alla volta,
+//      con le stesse regole (solo le tue righe, solo icone «da firmare»).
 // =====================================================================
 
 var ArgoAzioni = (() => {
@@ -378,7 +382,7 @@ var ArgoAzioni = (() => {
 
   // docente: { cognome, nome } delle impostazioni (se manca si leggono da lì).
   async function esegui(action, onStep = () => {}, { now = new Date(), ask = askInPage, docente = null } = {}) {
-    const nome = action === 'appello' ? 'Appello' : 'Firma ora';
+    const nome = action === 'appello' ? 'Appello' : action === 'firma-oggi' ? 'Firma ore di oggi' : 'Firma ora';
     const steps = [];
     const step = (text, kind = 'ok') => {
       steps.push({ text, kind });
@@ -555,6 +559,42 @@ var ArgoAzioni = (() => {
       return mie.find(r => r.stato === 'da-firmare') || mie.find(r => r.stato === 'firmata') || null;
     }
 
+    // Clicca, una alla volta, le icone arancioni «da firmare» delle tue righe
+    // nel registro aperto e aspetta che ogni ora risulti firmata.
+    // `firmate` raccoglie i numeri delle ore fatte (anche se poi una fallisce).
+    async function cliccaFirme(classe, daFirmare, firmate = []) {
+      for (const n of daFirmare) {
+        const ora = { numOra: n, classe: classe };
+        const riga = rigaMia(ora, await leggiRighe());
+        if (!riga) fail(`Non trovo più la tua riga della ${ord(n)} ora nel registro di ${classe}.`);
+        if (riga.stato === 'firmata') { firmate.push(n); continue; }
+        if (!riga.icon.classList.contains('icon-ora-da-firmare')) {
+          fail(`L'icona della ${ord(n)} ora non è un'icona «da firmare»: non la clicco.`);
+        }
+        clickLikeUser(riga.icon);
+        step(`Cliccata l'icona arancione «da firmare» della ${ord(n)} ora` + (riga.docente ? ` (riga di ${riga.docente})` : ''));
+        const ok = await waitFor(() => {
+          const msg = messageBoxText();
+          if (msg) return { msg };
+          if (loadingMaskShown()) return null;
+          const ora = readRegistroRows().filter(x => x.numOra === n);
+          // stessa riga della tabella (DidUP la ridisegna dopo la firma), oppure nessuna icona «da firmare» rimasta a quell'ora
+          const stessa = riga.index != null ? ora.find(x => x.index === riga.index) : null;
+          // (se DidUP riordina le righe: l'arancione «da firmare» c'è solo sulle tue, quindi a quell'ora non ne restano)
+          const fatta = (stessa && stessa.stato === 'firmata') ||
+            (ora.length > 0 && !ora.some(x => x.stato === 'da-firmare') && ora.some(x => x.stato === 'firmata' && !x.altroDocente));
+          return fatta ? { ok: true } : null;
+        }, WAIT_FIRMA_MS);
+        if (!ok || ok.msg) {
+          fail(`Ho cliccato l'icona di firma della ${ord(n)} ora, ma ` +
+            (ok && ok.msg ? `DidUP ha risposto: «${ok.msg}».` : `dopo ${WAIT_FIRMA_MS / 1000} secondi risulta ancora da firmare.`));
+        }
+        firmate.push(n);
+        step(`${ord(n)} ora firmata`);
+      }
+      return firmate;
+    }
+
     async function firma(lezione, righe) {
       const allaOra = descriviOra(lezione, righe);
       const target = rigaMia(lezione, righe);
@@ -611,36 +651,7 @@ var ArgoAzioni = (() => {
         }
       }
 
-      const firmate = [];
-      for (const n of daFirmare) {
-        const ora = { numOra: n, classe: lezione.classe };
-        const riga = rigaMia(ora, await leggiRighe());
-        if (!riga) fail(`Non trovo più la tua riga della ${ord(n)} ora nel registro di ${lezione.classe}.`);
-        if (riga.stato === 'firmata') { firmate.push(n); continue; }
-        if (!riga.icon.classList.contains('icon-ora-da-firmare')) {
-          fail(`L'icona della ${ord(n)} ora non è un'icona «da firmare»: non la clicco.`);
-        }
-        clickLikeUser(riga.icon);
-        step(`Cliccata l'icona arancione «da firmare» della ${ord(n)} ora` + (riga.docente ? ` (riga di ${riga.docente})` : ''));
-        const ok = await waitFor(() => {
-          const msg = messageBoxText();
-          if (msg) return { msg };
-          if (loadingMaskShown()) return null;
-          const ora = readRegistroRows().filter(x => x.numOra === n);
-          // stessa riga della tabella (DidUP la ridisegna dopo la firma), oppure nessuna icona «da firmare» rimasta a quell'ora
-          const stessa = riga.index != null ? ora.find(x => x.index === riga.index) : null;
-          // (se DidUP riordina le righe: l'arancione «da firmare» c'è solo sulle tue, quindi a quell'ora non ne restano)
-          const fatta = (stessa && stessa.stato === 'firmata') ||
-            (ora.length > 0 && !ora.some(x => x.stato === 'da-firmare') && ora.some(x => x.stato === 'firmata' && !x.altroDocente));
-          return fatta ? { ok: true } : null;
-        }, WAIT_FIRMA_MS);
-        if (!ok || ok.msg) {
-          fail(`Ho cliccato l'icona di firma della ${ord(n)} ora, ma ` +
-            (ok && ok.msg ? `DidUP ha risposto: «${ok.msg}».` : `dopo ${WAIT_FIRMA_MS / 1000} secondi risulta ancora da firmare.`));
-        }
-        firmate.push(n);
-        step(`${ord(n)} ora firmata`);
-      }
+      const firmate = await cliccaFirme(lezione.classe, daFirmare);
       const ore = firmate.map(ord);
       const f1 = firmate.length === 1 ? fascia(firmate[0]) : null;
       const quando = f1 ? ` (${fmtMin(f1.inizio)}–${fmtMin(f1.fine)})` : '';
@@ -649,6 +660,62 @@ var ArgoAzioni = (() => {
         summary: (ore.length > 1 ? `Firmate la ${ore.slice(0, -1).join(', la ')} e la ${ore[ore.length - 1]} ora`
           : `Firmata la ${ore[0]} ora`) + ` · ${lezione.classe}${lezione.materia ? ' · ' + lezione.materia : ''}${ore.length > 1 ? '' : quando}`
       };
+    }
+
+    // «Firma ore di oggi»: tutte le lezioni che la Home mostra da firmare,
+    // classe per classe, dopo una sola conferma con l'elenco delle ore.
+    async function firmaOggi(lezioni) {
+      const daFare = lezioni.filter(l => l.stato === 'da-firmare');
+      if (!daFare.length) {
+        if (lezioni.every(l => l.stato === 'firmata')) {
+          return { ok: true, summary: 'Tutte le tue lezioni di oggi risultano già firmate: non ho cliccato nulla.' };
+        }
+        fail('Nella Home non riconosco lo stato di firma delle lezioni (le icone non sono quelle previste ' +
+          '«da firmare» / «firmata»): non clicco nulla, firma a mano.');
+      }
+      const classi = [...new Set(daFare.map(l => l.classe))];
+      const oreDi = (classe, list) => `${classe} ${list.filter(l => l.classe === classe).map(l => ord(l.numOra)).join(', ')}`;
+      const elenco = classi.map(c => oreDi(c, daFare)).join(' · ');
+      const n = daFare.length;
+      const confirmLabel = n > 1 ? `Firma ${n} ore` : 'Firma';
+      step(`Chiesto il permesso: firmare ${n > 1 ? `le ${n} ore` : 'l\'ora'} di oggi non ancora firmat${n > 1 ? 'e' : 'a'} (${elenco})`, 'ask');
+      const si = await ask(`Adesso sono le ${fmtMin(nowMin)}. Firmo ${n > 1 ? `tutte le tue ${n} ore` : 'la tua ora'} di oggi non ancora firmat${n > 1 ? 'e' : 'a'}, ` +
+        `comprese quelle non in corso: ${elenco}. Procedo?`, { title: 'Firma ore di oggi', confirmLabel, cancelLabel: 'Non firmare' });
+      step(`Risposta: «${si ? confirmLabel : 'Non firmare'}»`);
+      if (!si) return { ok: true, cancelled: true, summary: 'Non ho firmato nulla: hai scelto di non procedere.' };
+
+      const fatte = [], problemi = [];
+      let primaClasse = true;
+      for (const classe of classi) {
+        const ore = daFare.filter(l => l.classe === classe);
+        const firmate = [];
+        try {
+          if (!primaClasse) await goHome();
+          primaClasse = false;
+          const righe = await entraNelRegistro(ore[0]);
+          const numeri = [];
+          for (const l of ore) {
+            const allaOra = descriviOra(l, righe);
+            if (rigaMia(l, righe)) { numeri.push(l.numOra); continue; }
+            const msg = `${classe} ${ord(l.numOra)} ora: non trovo la tua riga` +
+              (allaOra.length ? ` (${allaOra.map(rigaPerErrore).join('; ')})` : '');
+            problemi.push(msg);
+            step(msg + ': la salto', 'warn');
+          }
+          await cliccaFirme(classe, numeri, firmate);
+        } catch (err) {
+          if (!(err instanceof AzioneError)) throw err;
+          problemi.push(`${classe}: ${err.message}`);
+          step(`${err.message} Passo alla classe successiva.`, 'warn');
+        }
+        for (const num of firmate) fatte.push({ classe, numOra: num });
+      }
+      const fatteTxt = [...new Set(fatte.map(l => l.classe))].map(c => oreDi(c, fatte)).join(' · ');
+      if (problemi.length) {
+        fail(`Firmat${fatte.length === 1 ? 'a' : 'e'} ${fatte.length} or${fatte.length === 1 ? 'a' : 'e'} su ${n}` + (fatte.length ? ` (${fatteTxt})` : '') +
+          `. Da controllare e firmare a mano: ${problemi.join(' — ')}`);
+      }
+      return { ok: true, summary: `${n > 1 ? `Firmate le ${n} ore` : 'Firmata l\'ora'} di oggi: ${fatteTxt}` };
     }
 
     async function appello(lezione) {
@@ -693,6 +760,7 @@ var ArgoAzioni = (() => {
       }
 
       let lezioni = await leggiLezioni();
+      if (action === 'firma-oggi') return { ...(await firmaOggi(lezioni)), steps };
       let righeAperte = null, classeAperta = null, oraAperta = null;
       const iniziale = scegliLezione(action, lezioni, nowMin);
 

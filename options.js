@@ -145,7 +145,11 @@ function bindScuola() {
   // Cognome e nome in due campi: Argo li scrive in quest'ordine («ROSSI MARIO»).
   for (const key of ['docenteCognome', 'docenteNome']) {
     const input = $(key);
-    input.addEventListener('input', () => saveDebounced(key, cleanText(input.value)));
+    input.addEventListener('input', () => {
+      saveDebounced(key, cleanText(input.value));
+      renderFunzioni();      // Firma e Appello si attivano quando ci sono cognome e nome
+      renderPreview();
+    });
     input.addEventListener('change', () => { input.value = cleanText(input.value); });
   }
 }
@@ -297,13 +301,49 @@ const FEATURE_KEYS = ['showFirma', 'showAppello', 'showArgomenti'];
 const GUIDE_KEYS = ['guidaPulsanti', 'guidaArgomenti'];
 let featureRoots = [];
 
+// Riga «Firma»: scritte della modalità scelta; senza cognome e nome del
+// docente Firma e Appello sono disattivati (interruttori bloccati e avviso).
+function renderFunzioni() {
+  const mode = firmaMode(state);
+  $('firma-title').textContent = mode.label;
+  $('firma-desc').textContent = 'Pulsante nella barra in alto. ' + mode.desc;
+  const ok = hasDocente(state);
+  $('docente-missing').hidden = ok;
+  for (const key of ['showFirma', 'showAppello']) {
+    $(key).disabled = !ok;
+    $(key).closest('.feature').classList.toggle('off', !ok);
+  }
+  document.querySelectorAll('input[name="firmaMode"]').forEach(r => {
+    r.checked = r.value === mode.id;
+    r.disabled = !ok || !state.showFirma;
+  });
+}
+
 function bindFunzioni() {
   for (const key of [...FEATURE_KEYS, ...GUIDE_KEYS]) {
     $(key).addEventListener('change', e => {
       save({ [key]: e.target.checked });
+      renderFunzioni();
       renderPreview();
     });
   }
+  // «Firma ora» oppure «Firma ore di oggi»: cosa fa il pulsante di firma.
+  for (const m of FIRMA_MODES) {
+    const label = document.createElement('label');
+    label.title = m.desc;
+    label.innerHTML = `<input type="radio" name="firmaMode" value="${m.id}"><span>${m.label}</span>`;
+    label.querySelector('input').addEventListener('change', () => {
+      save({ firmaMode: m.id });
+      renderFunzioni();
+      renderPreview();
+    });
+    $('firma-mode-group').appendChild(label);
+  }
+  $('docente-missing-link').addEventListener('click', e => {
+    e.preventDefault();
+    $('sec-scuola').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    $(cleanText(state.docenteCognome) ? 'docenteNome' : 'docenteCognome').focus({ preventScroll: true });
+  });
   // Icona di ogni funzione: lo stesso pulsante che compare nel registro.
   const icons = { 'fi-firma': BOOSTER_ICONS.firma, 'fi-appello': BOOSTER_ICONS.appello, 'fi-argomenti': BOOSTER_ICONS.book.replace(/(width|height)="14"/g, '$1="18"') };
   featureRoots = Object.entries(icons).map(([id, svg]) => {
@@ -328,8 +368,8 @@ function buildPreview() {
     return root;
   };
   previewRoots = {
-    buttons: mk('pv-buttons', `<style>:host{all:initial}${boosterButtonsCss()} .b[hidden]{display:none}</style><style class="theme"></style>
-      <div class="bar">${BOOSTER_ACTIONS.map(boosterButtonHtml).join('')}</div>`),
+    buttons: mk('pv-buttons', `<style>:host{all:initial}${boosterButtonsCss()}</style><style class="theme"></style>
+      <div class="bar"></div>`),
     topics: mk('pv-topics', `<style>:host{all:initial}${boosterPillCss()} .pill[hidden]{display:none}</style><style class="theme"></style>
       <button type="button" class="pill" tabindex="-1">${BOOSTER_ICONS.book}<span>Argomenti e compiti</span></button>`)
   };
@@ -340,7 +380,8 @@ function renderPreview() {
   const css = `:host { ${buttonThemeCss(state.buttonsTheme)} }`;
   for (const root of [...Object.values(previewRoots), ...featureRoots]) root.querySelector('style.theme').textContent = css;
   // Solo le funzioni attive (sezione «Funzioni nel registro»).
-  for (const a of BOOSTER_ACTIONS) previewRoots.buttons.querySelector(`[data-action="${a.id}"]`).hidden = state[a.setting] === false;
+  // (stessi pulsanti e stesse scritte del registro: dipendono dalla modalità di firma e da cognome e nome)
+  previewRoots.buttons.querySelector('.bar').innerHTML = enabledActions(state).map(boosterButtonHtml).join('');
   previewRoots.topics.querySelector('.pill').hidden = !state.showArgomenti;
   const pv = $('pv-buttons');
   pv.style.left = pv.style.right = '';
@@ -1020,6 +1061,7 @@ function fillForm() {
   $('ricordami').checked = state.ricordami;
   $('keepAliveEnabled').checked = state.keepAliveEnabled;
   for (const key of [...FEATURE_KEYS, ...GUIDE_KEYS]) $(key).checked = state[key];
+  renderFunzioni();
   renderPreview();
   for (const key of URL_KEYS) $(key).value = state[key];
   updateMissingCode();

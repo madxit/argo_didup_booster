@@ -51,6 +51,7 @@ var DEFAULT_SETTINGS = {
   docenteNome: '',
   keepAliveEnabled: true,
   showFirma: true,                 // funzioni aggiunte al registro (si possono togliere)
+  firmaMode: 'ora',                // cosa fa il pulsante di firma: id di FIRMA_MODES ('ora' | 'oggi')
   showAppello: true,
   showArgomenti: true,
   guidaPulsanti: true,             // guida dei pulsanti alla prossima apertura del registro (si spegne dopo)
@@ -185,6 +186,7 @@ function sanitizeSettings(raw) {
   }
   if (src.docenteCognome !== undefined) s.docenteCognome = cleanText(src.docenteCognome);
   if (src.docenteNome !== undefined) s.docenteNome = cleanText(src.docenteNome);
+  if (src.firmaMode !== undefined) s.firmaMode = FIRMA_MODES.some(m => m.id === src.firmaMode) ? src.firmaMode : DEFAULT_SETTINGS.firmaMode;
   if (src.buttonsPosition !== undefined) {
     if (BUTTON_POSITIONS.some(p => p.id === src.buttonsPosition)) s.buttonsPosition = src.buttonsPosition;
     else warnings.push(`Posizione dei pulsanti "${src.buttonsPosition}" sconosciuta: uso "${DEFAULT_SETTINGS.buttonsPosition}".`);
@@ -263,9 +265,35 @@ var BOOSTER_ACTIONS = [
   { id: 'appello', setting: 'showAppello', label: 'Appello', tip: 'Appello: apre l\'appello della lezione più vicina all\'ora' }
 ];
 
-// Pulsanti della barra attivi nelle impostazioni (Funzioni nel registro).
+// Il pulsante di firma ha due modalità (Impostazioni → Funzioni nel registro):
+// `action` è l'azione di azioni.js che il pulsante avvia.
+var FIRMA_MODES = [
+  { id: 'ora', action: 'firma', label: 'Firma ora', tip: 'Firma ora: la tua lezione in corso o la prossima',
+    desc: 'Firma la tua lezione in corso (o la prossima, dopo averti chiesto il permesso).' },
+  { id: 'oggi', action: 'firma-oggi', label: 'Firma ore di oggi', tip: 'Firma ore di oggi: tutte le tue lezioni di oggi non ancora firmate',
+    desc: 'Firma in una volta tutte le tue lezioni di oggi non ancora firmate, dopo una conferma con l\'elenco delle ore.' }
+];
+
+function firmaMode(s) {
+  return FIRMA_MODES.find(m => m.id === (s && s.firmaMode)) || FIRMA_MODES[0];
+}
+
+// Firma e Appello lavorano sulle righe del docente: senza cognome e nome
+// (Impostazioni → Scuola e accesso) restano disattivati.
+function hasDocente(s) {
+  return Boolean(s && cleanText(s.docenteCognome) && cleanText(s.docenteNome));
+}
+
+// Pulsanti della barra attivi (Funzioni nel registro), con la scritta della
+// modalità di firma scelta. Senza impostazioni: tutti, con le scritte predefinite.
 function enabledActions(s) {
-  return BOOSTER_ACTIONS.filter(a => !s || s[a.setting] !== false);
+  if (!s) return BOOSTER_ACTIONS;
+  if (!hasDocente(s)) return [];
+  return BOOSTER_ACTIONS.filter(a => s[a.setting] !== false).map(a => {
+    if (a.id !== 'firma') return a;
+    const m = firmaMode(s);
+    return { ...a, label: m.label, tip: m.tip, run: m.action };
+  });
 }
 
 var BOOSTER_BUTTON_SIZE = 34;       // come l'immagine del pulsante di aiuto di DidUP (alta 34 px)
