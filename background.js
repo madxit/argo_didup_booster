@@ -9,6 +9,8 @@
 //     registro in una scheda in secondo piano) ricarica il registro quando
 //     non lo usi da qualche minuto o quando la sessione è scaduta
 //   • badge "!" finché manca il codice scuola
+//   • avvertenze d'uso: finché non sono state accettate (pagina delle
+//     impostazioni) l'estensione non fa nulla; il clic sull'icona le apre
 // =====================================================================
 
 importScripts('settings.js');
@@ -21,6 +23,12 @@ const PROBE_TIMEOUT_MS = 6000;
 // ---------------------------------------------------------------------
 
 async function updateBadge() {
+  if (!await isDisclaimerAccepted()) {
+    await chrome.action.setBadgeBackgroundColor({ color: '#d93025' });
+    await chrome.action.setBadgeText({ text: '!' });
+    await chrome.action.setTitle({ title: 'Argo DidUP Booster — non attivo: leggi e accetta le avvertenze' });
+    return;
+  }
   const s = await loadSettings();
   if (!s.codiceScuola) {
     await chrome.action.setBadgeBackgroundColor({ color: '#d93025' });
@@ -94,6 +102,10 @@ async function restartLoginIn(tab, s) {
 }
 
 async function goToRegistro(currentTab = null) {
+  if (!await isDisclaimerAccepted()) {
+    await chrome.runtime.openOptionsPage();       // la pagina delle impostazioni mostra le avvertenze
+    return { ok: false, reason: 'disclaimer' };
+  }
   const s = await loadSettings();
   if (!s.codiceScuola) {
     await chrome.runtime.openOptionsPage();
@@ -145,6 +157,10 @@ async function goToRegistro(currentTab = null) {
 // Clic sull'icona: registro aperto e sessione valida → impostazioni;
 // altrimenti → Argo (accesso automatico se serve).
 async function handleIconClick(tab) {
+  if (!await isDisclaimerAccepted()) {
+    await chrome.runtime.openOptionsPage();
+    return { ok: false, reason: 'disclaimer' };
+  }
   const s = await loadSettings();
   if (!s.codiceScuola) {
     await chrome.runtime.openOptionsPage();
@@ -277,6 +293,7 @@ async function keepAliveTick() {
   if (keepAliveRunning) return;
   keepAliveRunning = true;
   try {
+    if (!await isDisclaimerAccepted()) return;     // avvertenze non accettate: l'estensione non tocca le schede
     const s = await loadSettings();
     const all = await chrome.tabs.query({ url: ARGO_TABS });
     const tabs = all.filter(t => isArgoDashboardUrl(t.url, s));
@@ -401,6 +418,13 @@ async function resumeAfterSelfReload() {
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   // Ogni passo è indipendente: se uno fallisce gli altri vanno comunque eseguiti.
   const steps = [updateBadge, clearPopups, ensureKeepAliveAlarm, injectIntoOpenArgoTabs, async () => {
+    // Primo avvio (o primo aggiornamento a una versione con le avvertenze): vanno lette e accettate.
+    if (!await isDisclaimerAccepted()) {
+      const d = await getDisclaimer();
+      // Già rifiutate con questa versione del testo: non si riapre la pagina a ogni aggiornamento.
+      if (!(d && d.accepted === false && d.version === DISCLAIMER_VERSION)) await chrome.runtime.openOptionsPage();
+      return;
+    }
     if (reason !== 'install') return;
     const s = await loadSettings();
     if (!s.codiceScuola) await chrome.runtime.openOptionsPage();
@@ -417,7 +441,7 @@ chrome.runtime.onStartup.addListener(async () => {
 
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== 'local') return;
-  if ('codiceScuola' in changes) updateBadge();
+  if ('codiceScuola' in changes || 'disclaimer' in changes) updateBadge();
   if ('keepAliveEnabled' in changes) keepAliveTick().catch(() => {});
 });
 

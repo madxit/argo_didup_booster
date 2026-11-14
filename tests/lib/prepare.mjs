@@ -8,6 +8,8 @@ import { fileURLToPath } from 'node:url';
 
 export const TESTS = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const PROJECT = path.resolve(TESTS, '..');
+// Avvertenze d'uso già accettate (stato `disclaimer` in chrome.storage.local): senza, l'estensione non fa nulla.
+export const DISCLAIMER_OK = { accepted: true, version: 1, at: 1 };
 export const CHROME = process.env.CHROME_PATH || '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 
 // File e cartelle che non fanno parte dell'estensione.

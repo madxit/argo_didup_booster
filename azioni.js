@@ -15,8 +15,10 @@
 //                  altrimenti quella appena finita, altrimenti la prossima
 //   5. Firma: nel registro di classe si cerca la TUA riga di quell'ora (in
 //      una classe articolata o in compresenza ci sono anche le righe dei
-//      colleghi: docente collegato in DidUP, nome e cognome nella colonna
-//      «Docente», testo dell'icona). Clic solo sulle icone arancioni "da
+//      colleghi). Una riga è tua se lo dice DidUP: i dati del registro
+//      oppure l'icona, che DidUP disegna arancione «da firmare» solo sulle
+//      righe del docente collegato. Cognome e nome (colonna «Docente»)
+//      servono solo quando DidUP non dice nulla. Clic solo sulle icone arancioni "da
 //      firmare" (mai su quelle già firmate: in DidUP il clic toglierebbe la
 //      firma). Se la Home dice che l'ora in corso è già firmata, si controlla
 //      nel registro che la firma sia tua. Se la fascia oraria di un'ora da
@@ -253,6 +255,7 @@ var ArgoAzioni = (() => {
     }).filter(r => r.numOra > 0);
   }
 
+  // Confronto tra due nomi scritti per intero, quando non si sa dove finisce il cognome:
   // "ROSSI MARIO" = "Mario Rossi" = "ROSSI MARIO GIUSEPPE" (stesse parole, in qualsiasi ordine).
   function nameTokens(nome) {
     return foldText(nome).replace(/[^a-z' ]+/g, ' ').split(/[\s']+/).filter(t => t.length > 1);
@@ -265,23 +268,51 @@ var ArgoAzioni = (() => {
     return short.every(t => long.includes(t));
   }
 
+  // Cognome e nome delle impostazioni contro il docente di una riga. Argo
+  // scrive «COGNOME NOME» ("ROSSI MARIO", "DE LUCA ANNA MARIA"): il cognome
+  // deve stare all'inizio (o, per sicurezza, alla fine: «NOME COGNOME») e nel
+  // resto deve esserci almeno uno dei nomi. Non contano maiuscole, accenti,
+  // apostrofi e spazi dentro il cognome ("D'ANGELO" = "D ANGELO" = "DANGELO").
+  const nameWords = t => foldText(t).replace(/['’`´]/g, '').replace(/[^a-z]+/g, ' ').trim().split(' ').filter(Boolean);
+
+  function sameDocente(testo, mio) {
+    const w = nameWords(testo);
+    const c = nameWords(mio && mio.cognome).join('');
+    const n = nameWords(mio && mio.nome);
+    if (!w.length || (!c && !n.length)) return false;
+    if (!c) return sameName(testo, mio.nome);          // tutto scritto nel campo del nome
+    const resti = [];
+    for (let k = 1; k <= w.length; k++) {
+      if (w.slice(0, k).join('') === c) resti.push(w.slice(k));
+      if (w.slice(-k).join('') === c) resti.push(w.slice(0, -k));
+    }
+    if (!resti.length) return false;
+    if (!n.length) return true;                        // indicato solo il cognome
+    return resti.some(r => r.length === 0 || r.some(t => n.includes(t)));
+  }
+
   // Di chi è ogni riga? In una classe articolata o in compresenza la stessa
   // ora ha più righe, una per docente. In ordine di affidabilità:
   //   1. DidUP: la riga ha l'anagrafica del docente collegato (dati del registro);
-  //   2. nome e cognome nella colonna «Docente» uguali ai tuoi;
-  //   3. l'icona: arancione «da firmare» solo sulle tue righe, «firmata da un
-  //      altro docente» su quelle dei colleghi.
-  function assegnaRighe(righe, dati, nomi) {
+  //   2. l'icona, che DidUP disegna con la stessa regola: arancione «da
+  //      firmare» e «Clicca per eliminare la firma» solo sulle righe del
+  //      docente collegato, «… un altro docente» su quelle dei colleghi;
+  //   3. solo se DidUP non dice nulla: cognome e nome nella colonna «Docente»
+  //      (`eMio` = funzione che riconosce il tuo nome, o null se non lo si sa).
+  // Il nome non può mai escludere una riga che DidUP indica come tua: fino
+  // alla 1.2.1 veniva prima dell'icona, e un nome scritto in modo diverso da
+  // Argo nelle impostazioni bastava a non far trovare la riga da firmare.
+  function assegnaRighe(righe, dati, eMio) {
     for (const r of righe) {
       const d = dati && dati.ok && Array.isArray(dati.righe) && r.index != null ? dati.righe[r.index] : null;
       const datiOk = d && d.numOra === r.numOra;
       if (datiOk && d.docente) r.docente = d.docente;
       const perPk = datiOk && typeof d.mia === 'boolean' ? d.mia : null;
-      const perNome = nomi.length && r.docente ? nomi.some(n => sameName(n, r.docente)) : null;
       const perIcona = r.stato === 'da-firmare' ? true : r.altroDocente ? false
         : /eliminare la firma/i.test(r.etichetta) ? true : null;
-      r.mia = perPk ?? perNome ?? perIcona ?? false;
-      r.come = perPk != null ? 'DidUP' : perNome != null ? 'nome' : perIcona != null ? 'icona' : 'nessuno';
+      const perNome = eMio && r.docente ? Boolean(eMio(r.docente)) : null;
+      r.mia = perPk ?? perIcona ?? perNome ?? false;
+      r.come = perPk != null ? 'DidUP' : perIcona != null ? 'icona' : perNome != null ? 'nome' : 'nessuno';
     }
     return righe;
   }
@@ -345,7 +376,8 @@ var ArgoAzioni = (() => {
   // Esecuzione
   // ------------------------------------------------------------------
 
-  async function esegui(action, onStep = () => {}, { now = new Date(), ask = askInPage, docenteNome = null } = {}) {
+  // docente: { cognome, nome } delle impostazioni (se manca si leggono da lì).
+  async function esegui(action, onStep = () => {}, { now = new Date(), ask = askInPage, docente = null } = {}) {
     const nome = action === 'appello' ? 'Appello' : 'Firma ora';
     const steps = [];
     const step = (text, kind = 'ok') => {
@@ -354,19 +386,24 @@ var ArgoAzioni = (() => {
     };
     const nowMin = now.getHours() * 60 + now.getMinutes();
 
-    // Il tuo nome: quello di DidUP (letto con le righe del registro) e quello delle impostazioni.
-    let nomeImpostazioni = docenteNome;
-    if (nomeImpostazioni == null) {
-      try { nomeImpostazioni = typeof loadSettings === 'function' ? (await loadSettings()).docenteNome : ''; } catch (e) { nomeImpostazioni = ''; }
+    // Il tuo nome: quello di DidUP (letto con le righe del registro) e cognome e nome delle impostazioni.
+    let mio = docente;
+    if (!mio) {
+      try {
+        const s = typeof loadSettings === 'function' ? await loadSettings() : {};
+        mio = { cognome: s.docenteCognome, nome: s.docenteNome };
+      } catch (e) { mio = {}; }
     }
+    mio = { cognome: cleanText(mio.cognome), nome: cleanText(mio.nome) };
     let nomeDidup = '';
 
     async function leggiRighe() {
       const righe = readRegistroRows();
       const dati = await bridge('registroLessons');
       if (dati.ok && dati.utente) nomeDidup = dati.utente;
-      const nomi = [nomeDidup, nomeImpostazioni].filter(Boolean);
-      return assegnaRighe(righe, dati, nomi);
+      const sappiamoIlNome = Boolean(nomeDidup || mio.cognome || mio.nome);
+      const eMio = testo => Boolean(nomeDidup && sameName(nomeDidup, testo)) || sameDocente(testo, mio);
+      return assegnaRighe(righe, dati, sappiamoIlNome ? eMio : null);
     }
 
     async function goHome() {
@@ -461,6 +498,9 @@ var ArgoAzioni = (() => {
         if (loadingMaskShown()) return false;
         const icons = gridIcons();
         if (icons.length && icons.every(i => !before.has(rowOf(i)))) return true;
+        // DidUP può riusare le righe già disegnate (stessa classe riaperta): dopo
+        // qualche secondo valgono anche quelle, se sono visibili e non sta caricando.
+        if (icons.length && Date.now() - t0 > 4000) return true;
         // registro aperto ma senza righe con icone di firma
         return Date.now() - t0 > 5000 && !icons.length && Boolean(appelloButton());
       }, WAIT_VIEW_MS);
@@ -492,6 +532,12 @@ var ArgoAzioni = (() => {
     }
 
     const statoRiga = r => r.stato === 'da-firmare' ? 'da firmare' : r.stato === 'firmata' ? 'firmata' : 'senza firma';
+    // Per il messaggio d'errore: chi c'è nella riga e cosa dice DidUP sull'icona.
+    const rigaPerErrore = r => `${r.docente || 'docente non indicato'}` +
+      (cleanText(r.etichetta) ? ` — DidUP: «${cleanText(r.etichetta).replace(/ Riga non modificabile.*$/i, '').slice(0, 90)}»` : '');
+    const comeMaiNonMia = () => 'DidUP non la indica come tua (l\'icona arancione «da firmare» compare solo sulle righe del docente collegato' +
+      (mio.cognome || mio.nome ? `, e nella colonna «Docente» non c'è ${[mio.cognome, mio.nome].filter(Boolean).join(' ')}` : '') +
+      '). Succede se l\'ora è assegnata a un collega, è una supplenza o non è prevista dal tuo orario: in quel caso firmala a mano dal registro.';
     const chiRiga = r => `${r.docente || 'docente non indicato'} (${statoRiga(r)}, ${r.mia ? 'tua' : 'di un altro docente'})`;
 
     // Righe della stessa ora (classe articolata, compresenza): si dice di chi sono.
@@ -514,8 +560,7 @@ var ArgoAzioni = (() => {
       const target = rigaMia(lezione, righe);
       if (!target) {
         fail(`Nel registro di ${lezione.classe} non trovo la tua riga per la ${ord(lezione.numOra)} ora` +
-          (allaOra.length ? ` (ci ${allaOra.length === 1 ? 'è solo la riga' : 'sono solo le righe'} di ${allaOra.map(r => r.docente || 'un docente non indicato').join(', ')}). ` +
-            'Se è tua, scrivi nome e cognome come in DidUP nelle impostazioni (Cognome e nome del docente).'
+          (allaOra.length ? `: ${allaOra.length === 1 ? 'c\'è solo la riga' : 'ci sono solo le righe'} di ${allaOra.map(rigaPerErrore).join('; ')}. ` + comeMaiNonMia()
             : ` (cercavo un'icona di firma con il numero ${lezione.numOra} nella tabella delle ore).`));
       }
       if (target.stato === 'firmata') {
@@ -584,8 +629,9 @@ var ArgoAzioni = (() => {
           const ora = readRegistroRows().filter(x => x.numOra === n);
           // stessa riga della tabella (DidUP la ridisegna dopo la firma), oppure nessuna icona «da firmare» rimasta a quell'ora
           const stessa = riga.index != null ? ora.find(x => x.index === riga.index) : null;
-          const fatta = stessa ? stessa.stato === 'firmata'
-            : ora.length > 0 && !ora.some(x => x.stato === 'da-firmare') && ora.some(x => x.stato === 'firmata' && !x.altroDocente);
+          // (se DidUP riordina le righe: l'arancione «da firmare» c'è solo sulle tue, quindi a quell'ora non ne restano)
+          const fatta = (stessa && stessa.stato === 'firmata') ||
+            (ora.length > 0 && !ora.some(x => x.stato === 'da-firmare') && ora.some(x => x.stato === 'firmata' && !x.altroDocente));
           return fatta ? { ok: true } : null;
         }, WAIT_FIRMA_MS);
         if (!ok || ok.msg) {
@@ -686,8 +732,8 @@ var ArgoAzioni = (() => {
             return { ...(await firma(l, righe)), steps };
           }
           if (!mia) {
-            fail(`Nel registro di ${l.classe} non trovo la tua riga per la ${ord(l.numOra)} ora: la firma che si vede è di un altro docente. ` +
-              'Se l\'ora è tua, scrivi nome e cognome come in DidUP nelle impostazioni (Cognome e nome del docente).');
+            fail(`Nel registro di ${l.classe} non trovo la tua riga per la ${ord(l.numOra)} ora: la firma che si vede nella Home è di un altro docente ` +
+              `(${righe.filter(r => r.numOra === l.numOra).map(rigaPerErrore).join('; ') || 'nessuna riga a quell\'ora'}). ` + comeMaiNonMia());
           }
           return { ok: true, steps, summary: `La lezione in corso (${describe(l)}) è già firmata da te${mia.docente ? ` (${mia.docente})` : ''}.` +
             (scelta.prossima ? ` La prossima da firmare è la ${describe(scelta.prossima)}.` : scelta.motivo === 'tutte-firmate' ? ' Le altre lezioni di oggi risultano già firmate.' : ' Non ci sono altre lezioni da firmare dopo.') };
@@ -727,5 +773,5 @@ var ArgoAzioni = (() => {
     }
   }
 
-  return { esegui, askInPage, scegliLezione, parseRange, readDashboardLessons, readRegistroRows, findHomeMenuItem, sameName, assegnaRighe };
+  return { esegui, askInPage, scegliLezione, parseRange, readDashboardLessons, readRegistroRows, findHomeMenuItem, sameName, sameDocente, assegnaRighe };
 })();

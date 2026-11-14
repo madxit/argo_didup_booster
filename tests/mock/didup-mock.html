@@ -43,7 +43,10 @@
     homeMenu: true, homeClickBroken: false, iconCls: null, start: 'home', delay: 250,
     // classe articolata / compresenza: { "5C": { "5": { docente: "BIANCHI ANNA", firmata: true } } } → riga del collega prima della tua
     articolata: {}, homeFirmataDaAltri: false,
-    utente: 'ROSSI MARIO', docenteRiga: 'ROSSI MARIO', pk: true
+    utente: 'ROSSI MARIO', docenteRiga: 'ROSSI MARIO', pk: true,
+    // ore che la Home mostra tra le tue ma che nel registro sono assegnate a un collega (es. ["4B#3"]):
+    // come in DidUP, la riga ha l'icona «+» e il testo «prevista per un altro docente»
+    righeAltrui: []
   };
   const cfg = Object.assign({}, DEFAULT, JSON.parse(decodeURIComponent(location.hash.slice(1) || '%7B%7D')));
   const signed = new Set(cfg.signed);
@@ -140,7 +143,8 @@
       const co = coDoc(stato.classe, n);
       const mine = myLesson(stato.classe, n);
       if (co) rows.push({ numOra: n, mine: false, docente: co.docente, materia: co.materia || 'ITALIANO', firmata: Boolean(co.firmata) });
-      if (mine) rows.push({ numOra: n, mine: true, docente: cfg.docenteRiga, materia: mine.materia, firmata: signed.has(`${stato.classe}#${n}`) });
+      const altrui = cfg.righeAltrui.includes(`${stato.classe}#${n}`);
+      if (mine) rows.push({ numOra: n, mine: !altrui, docente: altrui ? 'VERDI LUISA' : cfg.docenteRiga, materia: mine.materia, firmata: signed.has(`${stato.classe}#${n}`) });
       if (!co && !mine) rows.push({ numOra: n, mine: false, docente: 'BIANCHI ANNA', materia: 'ITALIANO', firmata: false });
     }
     return rows;

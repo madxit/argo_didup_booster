@@ -3,7 +3,7 @@
 // del provider (Poste ID, InfoCert, CIE) e non inserisce mai credenziali.
 // Uso: node tests/test-siti-reali.mjs [stale|click|onlogin]
 import { launch, sleep, waitFor, enableDevMode } from './lib/cdp-pipe.mjs';
-import { copyExtension, workDir } from './lib/prepare.mjs';
+import { copyExtension, workDir, DISCLAIMER_OK } from './lib/prepare.mjs';
 import { writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -95,7 +95,7 @@ async function withBrowser(fn) {
   finally { await b.close(); await sleep(500); }
 }
 
-const SETTINGS = (extra = {}) => ({ codiceScuola: 'SG18328', loginMethod: 'spid', spidProvider: 'posteid', autoLogin: true, ...extra });
+const SETTINGS = (extra = {}) => ({ disclaimer: DISCLAIMER_OK, codiceScuola: 'SG18328', loginMethod: 'spid', spidProvider: 'posteid', autoLogin: true, ...extra });
 
 // ---------------------------------------------------------------------------
 // 1. User's situation: Chrome still runs the old version, new files on disk.

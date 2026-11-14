@@ -142,9 +142,12 @@ function bindScuola() {
     }
   });
 
-  const nome = $('docenteNome');
-  nome.addEventListener('input', () => saveDebounced('docenteNome', cleanText(nome.value)));
-  nome.addEventListener('change', () => { nome.value = cleanText(nome.value); });
+  // Cognome e nome in due campi: Argo li scrive in quest'ordine («ROSSI MARIO»).
+  for (const key of ['docenteCognome', 'docenteNome']) {
+    const input = $(key);
+    input.addEventListener('input', () => saveDebounced(key, cleanText(input.value)));
+    input.addEventListener('change', () => { input.value = cleanText(input.value); });
+  }
 }
 
 // =================== METODO DI ACCESSO ===================
@@ -1006,6 +1009,7 @@ function bindAvanzate() {
 function fillForm() {
   $('codiceScuola').value = state.codiceScuola;
   setCodeError('');
+  $('docenteCognome').value = state.docenteCognome;
   $('docenteNome').value = state.docenteNome;
   document.querySelectorAll('input[name="loginMethod"]').forEach(r => {
     r.checked = r.value === state.loginMethod;
@@ -1028,6 +1032,109 @@ function fillForm() {
 function renderInfo() {
   $('info-version').textContent = 'v' + (chrome.runtime.getManifest().version || '?');
   for (const id of ['repo-link', 'repo-link-foot']) $(id).href = REPO_URL;
+  for (const id of ['issues-link', 'disclaimer-issues']) $(id).href = ISSUES_URL;
+}
+
+// =================== AVVERTENZE D'USO ===================
+// Al primo avvio si devono leggere e accettare (finestra non chiudibile in
+// altro modo): senza accettazione l'estensione non fa nulla e questa pagina
+// resta bloccata, con le istruzioni per disinstallarla. Dalle impostazioni
+// si possono rileggere e, volendo, ritirare l'accettazione.
+
+let disclaimer = null;     // { accepted, version, at } salvato in chrome.storage.local
+
+function formatDateTime(ms) {
+  try {
+    return new Date(ms).toLocaleString('it-IT', { day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    return '';
+  }
+}
+
+// Blocca (o sblocca) tutto tranne il riquadro «disattivato».
+function renderDisclaimerState() {
+  const ok = disclaimerOk(disclaimer);
+  $('disclaimer-blocked').hidden = ok;
+  for (const el of document.querySelector('main').children) {
+    if (el.id === 'disclaimer-blocked') continue;
+    el.inert = !ok;
+    el.classList.toggle('locked', !ok);
+  }
+  const st = $('disclaimer-status');
+  st.className = 'status-line ' + (ok ? 'ok' : 'err');
+  st.textContent = ok ? `✓ Avvertenze accettate${disclaimer.at ? ' il ' + formatDateTime(disclaimer.at) : ''}.` : 'Avvertenze non accettate.';
+  // «Disinstalla ora…» usa chrome.management.uninstallSelf (non richiede permessi).
+  const canUninstall = Boolean(chrome.management && chrome.management.uninstallSelf);
+  $('uninstall-btn').hidden = !canUninstall;
+  $('uninstall-step-now').hidden = !canUninstall;
+}
+
+function openDisclaimer() {
+  const ok = disclaimerOk(disclaimer);
+  const dlg = $('disclaimer-dialog');
+  // Già accettate: si rileggono e si chiudono; in più si può ritirare l'accettazione.
+  $('disclaimer-lead').textContent = ok
+    ? 'Sono le condizioni che hai accettato per usare Argo DidUP Booster.'
+    : 'Leggi con attenzione: Argo DidUP Booster si attiva solo se accetti queste condizioni.';
+  $('disclaimer-check-row').hidden = ok;
+  $('disclaimer-check').checked = false;
+  $('disclaimer-accept').hidden = ok;
+  $('disclaimer-accept').disabled = true;
+  $('disclaimer-close').hidden = !ok;
+  $('disclaimer-decline').textContent = ok ? 'Non le accetto più' : 'Non accetto';
+  const note = $('disclaimer-accepted-note');
+  note.hidden = !ok;
+  note.textContent = ok ? `Le hai accettate${disclaimer.at ? ' il ' + formatDateTime(disclaimer.at) : ''}. ` +
+    'Se non le condividi più, premi «Non le accetto più»: l\'estensione si disattiva e ti viene spiegato come disinstallarla.' : '';
+  if (!dlg.open) dlg.showModal();
+  $('disclaimer-text').scrollTop = 0;
+  $('disclaimer-text').focus({ preventScroll: true });
+}
+
+async function answerDisclaimer(accepted) {
+  flushPending();
+  await setDisclaimer(accepted);
+  disclaimer = await getDisclaimer();
+  $('disclaimer-dialog').close();
+  renderDisclaimerState();
+  if (accepted) {
+    showToast('Avvertenze accettate: l\'estensione è attiva.');
+    if (!state.codiceScuola) $('codiceScuola').focus();
+  } else {
+    window.scrollTo({ top: 0 });
+    $('disclaimer-reread').focus({ preventScroll: true });
+  }
+}
+
+function bindAvvertenze() {
+  const dlg = $('disclaimer-dialog');
+  // Esc chiude la finestra senza rispondere (Chrome non sempre permette di
+  // impedirlo): se le avvertenze non sono accettate la pagina resta comunque
+  // bloccata, con il riquadro «disattivato» e «Rileggi le avvertenze».
+  dlg.addEventListener('close', renderDisclaimerState);
+  $('disclaimer-check').addEventListener('change', e => { $('disclaimer-accept').disabled = !e.target.checked; });
+  $('disclaimer-accept').addEventListener('click', () => { if ($('disclaimer-check').checked) answerDisclaimer(true); });
+  $('disclaimer-decline').addEventListener('click', () => answerDisclaimer(false));
+  $('disclaimer-close').addEventListener('click', () => dlg.close());
+  $('disclaimer-open').addEventListener('click', openDisclaimer);
+  $('disclaimer-reread').addEventListener('click', openDisclaimer);
+  $('extensions-page-btn').addEventListener('click', () => {
+    chrome.tabs.create({ url: 'chrome://extensions/?id=' + chrome.runtime.id });
+  });
+  $('uninstall-btn').addEventListener('click', async () => {
+    const err = $('uninstall-error');
+    err.hidden = true;
+    try {
+      // Chrome chiede conferma con la sua finestra («Rimuovi»).
+      await chrome.management.uninstallSelf({ showConfirmDialog: true });
+    } catch (e) {
+      // conferma annullata, oppure Chrome non lo permette: restano le istruzioni a mano
+      if (!/cancel/i.test(String((e && e.message) || e))) {
+        err.hidden = false;
+        err.textContent = 'Chrome non ha completato la disinstallazione: segui le istruzioni qui sopra (tasto destro sull\'icona → «Rimuovi da Chrome…»).';
+      }
+    }
+  });
 }
 
 (async function init() {
@@ -1045,14 +1152,27 @@ function renderInfo() {
   bindArgomenti();
   bindBackup();
   bindAvanzate();
+  bindAvvertenze();
   fillForm();
   renderInfo();
 
-  if (!state.codiceScuola) $('codiceScuola').focus();
+  // Avvertenze d'uso: mai viste (o testo cambiato) → finestra da leggere;
+  // rifiutate → pagina bloccata con le istruzioni per disinstallare.
+  disclaimer = await getDisclaimer();
+  renderDisclaimerState();
+  if (!disclaimerOk(disclaimer)) {
+    if (!(disclaimer && disclaimer.accepted === false && disclaimer.version === DISCLAIMER_VERSION)) openDisclaimer();
+  } else if (!state.codiceScuola) $('codiceScuola').focus();
 
   await loadSessionInfo();
   chrome.storage.onChanged.addListener((changes, area) => {
     if (area !== 'local') return;
+    if (changes.disclaimer) {
+      // accettate o ritirate da un'altra scheda delle impostazioni
+      disclaimer = changes.disclaimer.newValue || null;
+      renderDisclaimerState();
+      if (disclaimerOk(disclaimer) && $('disclaimer-dialog').open && !$('disclaimer-accept').hidden) $('disclaimer-dialog').close();
+    }
     if (changes.keepAliveStatus || changes.keepAliveIdleMin || changes.sessionLog) loadSessionInfo();
     else if (changes.keepAliveEnabled || changes.ricordami) renderKeepAliveStatus();
     // Le guide si spengono da sole dopo essere state mostrate nel registro.

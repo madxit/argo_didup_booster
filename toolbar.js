@@ -29,6 +29,7 @@
   const GUIDE_STABLE_TICKS = 4;  // la barra deve restare ferma ~2,4 s prima della guida
 
   let settings = null;
+  let accepted = false;        // avvertenze d'uso accettate (impostazioni): senza, niente pulsanti
   let bar = null;              // { host, root, themeStyle, buttons, ids }
   let running = false;
   let guideTicks = 0;
@@ -360,7 +361,7 @@
     try {
       result = await ArgoAzioni.esegui(action, s => panel.addStep(s), {
         ask: (q, o) => panel.ask(q, o),
-        docenteNome: settings.docenteNome
+        docente: { cognome: settings.docenteCognome, nome: settings.docenteNome }
       });
     } catch (err) {
       result = { ok: false, error: String((err && err.message) || err) };
@@ -452,8 +453,9 @@
       if (bar) bar.host.remove();
       return;
     }
-    if (!settings || !isArgoDashboardUrl(location.href, settings)) {
+    if (!settings || !accepted || !isArgoDashboardUrl(location.href, settings)) {
       if (bar) bar.host.style.display = 'none';
+      if (!accepted && !running) panel.close();
       return;
     }
     if (!bar || !bar.host.isConnected || !barMatchesSettings()) createBar();
@@ -465,7 +467,11 @@
   let timer = null;
   chrome.storage.onChanged.addListener(async (changes, area) => {
     if (area !== 'local' || !isCurrent()) return;
-    if (['buttonsTheme', 'buttonsPosition', 'docenteNome', 'argoDashboardPattern', 'argoLoginUrl', 'showFirma', 'showAppello', 'guidaPulsanti'].some(k => k in changes)) {
+    if (changes.disclaimer) {
+      accepted = disclaimerOk(changes.disclaimer.newValue);
+      if (settings) tick();
+    }
+    if (['buttonsTheme', 'buttonsPosition', 'docenteCognome', 'docenteNome', 'argoDashboardPattern', 'argoLoginUrl', 'showFirma', 'showAppello', 'guidaPulsanti'].some(k => k in changes)) {
       settings = await loadSettings();
       if (changes.guidaPulsanti && changes.guidaPulsanti.newValue === true) guideShown = false;   // riattivata dalle impostazioni
       applyTheme();
@@ -474,8 +480,9 @@
     }
   });
 
-  loadSettings().then(s => {
+  Promise.all([loadSettings(), isDisclaimerAccepted()]).then(([s, ok]) => {
     settings = s;
+    accepted = ok;
     if (!isArgoPortalUrl(location.href) && !isArgoDashboardUrl(location.href, s)) return;
     tick();
     // La barra di DidUP compare dopo l'accesso e cambia con la finestra: si ricontrolla spesso (costa poco).

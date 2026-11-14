@@ -23,6 +23,34 @@
   </header>
 
   <main>
+    <!-- ============ AVVERTENZE NON ACCETTATE ============ -->
+    <section class="card blocked-card" id="disclaimer-blocked" hidden>
+      <h2>⛔ Argo DidUP Booster è disattivato</h2>
+      <p>
+        Non hai accettato le avvertenze d'uso. Finché non le accetti l'estensione <strong>non fa nulla</strong>:
+        nessun accesso automatico, nessun pulsante nel registro, nessun mantenimento della sessione; anche queste
+        impostazioni restano bloccate.
+      </p>
+      <p>Se non intendi accettarle, il consiglio è di <strong>disinstallare l'estensione</strong>:</p>
+      <ol class="uninstall-steps">
+        <li id="uninstall-step-now">premi <strong>Disinstalla ora…</strong> qui sotto e conferma con «Rimuovi» nella finestra di Chrome;</li>
+        <li>fai clic con il tasto destro sull'icona di Argo DidUP Booster nella barra di Chrome (se non la
+          vedi, apri prima il menu delle estensioni, l'icona a forma di puzzle), scegli
+          <strong>«Rimuovi da Chrome…»</strong> e conferma;</li>
+        <li>oppure apri la pagina delle estensioni (menu ⋮ di Chrome → <em>Estensioni</em> → <em>Gestisci
+          estensioni</em>, o l'indirizzo <span class="kbd">chrome://extensions</span>), cerca
+          «Argo DidUP Booster» e premi <strong>«Rimuovi»</strong>.</li>
+      </ol>
+      <p class="hint">Con la disinstallazione Chrome cancella anche le impostazioni dell'estensione salvate nel browser.
+        Se l'avevi installata da una cartella scaricata, dopo puoi eliminare anche quella cartella.</p>
+      <div class="btn-row">
+        <button id="disclaimer-reread" class="btn primary" type="button">Rileggi le avvertenze</button>
+        <button id="uninstall-btn" class="btn danger" type="button">Disinstalla ora…</button>
+        <button id="extensions-page-btn" class="btn" type="button">Apri la pagina delle estensioni</button>
+      </div>
+      <p class="error" id="uninstall-error" hidden></p>
+    </section>
+
     <div id="missing-code-banner" class="banner banner-error" hidden>
       <strong>⚠️ Codice scuola non impostato.</strong>
       Inseriscilo qui sotto per poter usare l'accesso automatico ad Argo.
@@ -39,11 +67,21 @@
           <p class="error" id="codiceScuola-error" hidden></p>
         </div>
         <div class="field">
-          <label for="docenteNome">Cognome e nome del docente</label>
-          <input id="docenteNome" autocomplete="off" placeholder="es. ROSSI MARIO">
-          <p class="hint">Facoltativo. «Firma ora» riconosce le tue righe del registro dai dati di DidUP; nelle classi
-            articolate e in compresenza controlla anche che il docente della riga sia tu. Scrivilo come compare nella
-            colonna «Docente» del registro (es. ROSSI MARIO) se DidUP non lo indica da solo.</p>
+          <div class="name-pair">
+            <div>
+              <label for="docenteCognome">Cognome del docente</label>
+              <input id="docenteCognome" autocomplete="off" placeholder="es. ROSSI">
+            </div>
+            <div>
+              <label for="docenteNome">Nome del docente</label>
+              <input id="docenteNome" autocomplete="off" placeholder="es. MARIO">
+            </div>
+          </div>
+          <p class="hint">Facoltativi. Scrivili come compaiono nella colonna «Docente» del registro, dove Argo mette
+            <strong>prima il cognome e poi il nome</strong> (es. ROSSI MARIO); maiuscole e accenti non contano.
+            «Firma ora» riconosce le tue righe da ciò che indica DidUP (l'icona arancione «da firmare» compare solo
+            sulle tue): cognome e nome servono solo quando DidUP non lo indica, per esempio nelle classi articolate
+            e in compresenza.</p>
         </div>
       </div>
 
@@ -257,6 +295,21 @@
       <div id="backup-msg" class="status-line"></div>
     </section>
 
+    <!-- ============ AVVERTENZE ============ -->
+    <section class="card" id="sec-avvertenze">
+      <h2>📜 Avvertenze d'uso</h2>
+      <p class="hint">
+        Argo DidUP Booster è un software <strong>non ufficiale</strong> (non è di Argo né del Ministero) e viene
+        fornito senza alcuna garanzia: controlla sempre nel registro ciò che ha fatto. Qui puoi rileggere le
+        avvertenze che hai accettato e, se non le condividi più, ritirare l'accettazione.
+      </p>
+      <div id="disclaimer-status" class="status-line"></div>
+      <div class="btn-row spaced">
+        <button id="disclaimer-open" class="btn" type="button">Rileggi le avvertenze</button>
+        <a id="issues-link" class="btn" href="https://github.com/madxit/argo_didup_booster/issues" target="_blank" rel="noopener">Segnala un problema su GitHub</a>
+      </div>
+    </section>
+
     <!-- ============ AVANZATE ============ -->
     <details class="card advanced" id="sec-avanzate">
       <summary>⚙️ Avanzate</summary>
@@ -282,6 +335,84 @@
       <a id="repo-link-foot" href="https://github.com/madxit/argo_didup_booster" target="_blank" rel="noopener">github.com/madxit/argo_didup_booster</a>
     </footer>
   </main>
+
+  <!-- ============ AVVERTENZE E CONDIZIONI D'USO (DISCLAIMER_VERSION in settings.js) ============ -->
+  <dialog id="disclaimer-dialog" aria-labelledby="disclaimer-title">
+    <div class="disc-head">
+      <img src="icon/icon48.png" alt="" width="36" height="36">
+      <div>
+        <h2 id="disclaimer-title">Avvertenze e condizioni d'uso</h2>
+        <p id="disclaimer-lead">Leggi con attenzione: Argo DidUP Booster si attiva solo se accetti queste condizioni.</p>
+      </div>
+    </div>
+    <div class="disc-body" id="disclaimer-text" tabindex="0">
+      <h3>1. È un software non ufficiale</h3>
+      <p>
+        Argo DidUP Booster è un progetto indipendente, sviluppato da un privato a titolo personale e distribuito
+        gratuitamente, con il codice sorgente aperto. <strong>Non è prodotto, approvato, verificato né supportato da
+        Argo Software, dal Ministero dell'Istruzione e del Merito (MIM) o dalla tua scuola</strong>, e non ha alcun
+        legame con loro. «Argo», «DidUP», «SPID» e «CIE» sono nomi e marchi dei rispettivi titolari, citati solo per
+        indicare i servizi con cui l'estensione lavora.
+      </p>
+      <h3>2. Funziona «così com'è», senza alcuna garanzia</h3>
+      <p>
+        L'estensione agisce sulle pagine del registro al posto tuo: preme pulsanti e compila campi basandosi su come
+        sono fatte oggi le pagine di Argo, che possono cambiare in qualsiasi momento e senza preavviso. Per questo
+        può smettere di funzionare, funzionare solo in parte o compiere un'azione diversa da quella prevista.
+        Non viene data alcuna garanzia, espressa o implicita, di funzionamento, correttezza, continuità o idoneità
+        a uno scopo particolare.
+      </p>
+      <h3>3. Nessuna responsabilità dello sviluppatore</h3>
+      <p>
+        Nei limiti massimi consentiti dalla legge, lo sviluppatore <strong>non risponde di errori, malfunzionamenti,
+        interruzioni o danni di qualunque tipo</strong>, diretti o indiretti, che derivino dall'uso dell'estensione o
+        dall'impossibilità di usarla. Per esempio: una firma mancante, doppia o messa sull'ora o sulla classe
+        sbagliata; un appello aperto sulla lezione sbagliata; argomenti o compiti inseriti in modo errato; una
+        sessione scaduta o dati non salvati; e ogni conseguenza che ne possa derivare, anche amministrativa o
+        disciplinare. Usi l'estensione per tua libera scelta e <strong>a tuo esclusivo rischio</strong>.
+      </p>
+      <h3>4. La responsabilità del registro resta tua</h3>
+      <p>
+        Il registro elettronico è un documento ufficiale: ciò che vi risulta a tuo nome è sotto la tua
+        responsabilità, anche quando il clic lo ha fatto l'estensione. <strong>Dopo ogni azione devi controllare che
+        il risultato sia quello giusto.</strong> Ogni volta che premi «Firma ora» o «Appello» si apre, in alto sotto
+        i pulsanti, un riquadro con l'elenco dei passi: che cosa è stato cliccato, che cosa non è stato trovato e
+        l'esito finale. Leggilo e verifica sempre nel registro; se qualcosa non torna, correggi a mano.
+      </p>
+      <h3>5. Accesso, sessione e dati</h3>
+      <p>
+        L'estensione non conosce e non salva le tue credenziali SPID o CIE: l'autenticazione la fai sempre tu.
+        Le impostazioni restano nel tuo browser e non vengono inviate allo sviluppatore né ad altri. Le funzioni
+        «Ricordami» e «Mantieni attiva la sessione» lasciano il registro aperto più a lungo: su un computer usato
+        anche da altre persone (per esempio quello dell'aula) vanno spente, ed è tua cura non lasciare il registro
+        incustodito.
+      </p>
+      <h3>6. Segnala i problemi che trovi</h3>
+      <p>
+        L'estensione migliora solo con l'aiuto di chi la usa. Se noti un errore o un comportamento strano,
+        segnalalo nella sezione <em>Issues</em> della pagina GitHub del progetto:
+        <a id="disclaimer-issues" href="https://github.com/madxit/argo_didup_booster/issues" target="_blank" rel="noopener">github.com/madxit/argo_didup_booster/issues</a>.
+        Indica la versione dell'estensione, che cosa stavi facendo e il testo del passo in rosso nel riquadro dei
+        passi. Non inserire mai dati personali di alunni o colleghi. Le segnalazioni sono preziose, ma non
+        comportano alcun obbligo di assistenza o di correzione da parte dello sviluppatore.
+      </p>
+      <p class="disc-close">
+        Accettando dichiari di aver letto e compreso queste avvertenze. Se non le accetti l'estensione resta
+        disattivata e il consiglio è di disinstallarla.
+      </p>
+    </div>
+    <div class="disc-foot">
+      <label class="check-row" id="disclaimer-check-row"><input type="checkbox" id="disclaimer-check">
+        <span>Ho letto e compreso le avvertenze: so che è un software non ufficiale, senza garanzie, e che devo
+          sempre controllare nel registro ciò che ha fatto.</span></label>
+      <p class="hint" id="disclaimer-accepted-note" hidden></p>
+      <div class="btn-row end">
+        <button id="disclaimer-decline" class="btn" type="button">Non accetto</button>
+        <button id="disclaimer-accept" class="btn primary" type="button" disabled>Accetto e attivo l'estensione</button>
+        <button id="disclaimer-close" class="btn primary" type="button" hidden>Chiudi</button>
+      </div>
+    </div>
+  </dialog>
 
   <dialog id="choice-dialog">
     <form method="dialog">
