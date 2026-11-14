@@ -207,10 +207,10 @@ try {
   check(res.r.ok && res.log.signClicks.join() === '4B#3', 'senza nome e senza dati: riconosce la riga dall\'icona («da firmare» solo sulle tue, «altro docente» sui colleghi)', stepsText(res));
 
   // Difetto della 1.2.1: il nome veniva prima dell'icona, e un nome scritto in modo diverso da Argo bloccava la firma.
-  res = await run({ ...ART, pk: false, utente: 'ROSSI MARIO' }, 'firma', '10:12');
+  res = await run({ ...ART, pk: false, utente: 'VERDI PAOLO' }, 'firma', '10:12');
   check(res.r.ok && res.log.signClicks.join() === '4B#3' && res.log.otherClicks === 0,
     'nome diverso da quello di Argo ma icona arancione «da firmare» (che DidUP mette solo sulle tue righe): firma lo stesso', stepsText(res) + ' ' + (res.r.error || ''));
-  res = await run({ pk: false, utente: '' }, 'firma', '10:12', [], { cognome: 'Rossi', nome: 'Mario' });
+  res = await run({ pk: false, utente: '' }, 'firma', '10:12', [], { cognome: 'Verdi', nome: 'Paolo' });
   check(res.r.ok && res.log.signClicks.join() === '4B#3',
     'cognome e nome delle impostazioni diversi da quelli della riga: l\'icona arancione basta, la firma non si blocca', stepsText(res) + ' ' + (res.r.error || ''));
 
@@ -221,6 +221,29 @@ try {
   res = await run({ righeAltrui: ['4B#3'], pk: false, utente: '' }, 'firma', '10:12', [], { cognome: 'Rossi', nome: 'Mario' });
   check(!res.r.ok && res.log.signClicks.length === 0 && res.log.otherClicks === 0 && /nella colonna «Docente» non c'è Rossi Mario/.test(res.r.error),
     '…anche senza i dati di DidUP: mai un clic sull\'icona «+» di un collega; l\'errore cita cognome e nome delle impostazioni', res.r.error);
+
+  // Nel giornale di classe il docente è scritto «Cognome Nome» (es. "Rossi Mario"): cognome e nome delle impostazioni devono trovarlo.
+  // Qui DidUP non dice nulla (niente dati, icone senza testo): decide solo il nome nella colonna «Docente».
+  const SOLO_NOME = { ...ART, pk: false, utente: '', senzaEtichette: true, docenteRiga: 'Rossi Mario' };
+  for (const [cognome, nome, come] of [['Rossi', 'Mario', 'come nel giornale'], ['ROSSI', 'MARIO', 'tutto maiuscolo'], ['rossi', 'mario', 'tutto minuscolo'],
+    [' Rossi ', 'Mario Giuseppe', 'con un secondo nome in più'], ['Mario', 'Rossi', 'cognome e nome scambiati nei due campi']]) {
+    res = await run({ ...SOLO_NOME, signed: ['4B#3'] }, 'firma', '10:12', [], { cognome, nome });
+    check(res.r.ok && res.log.signClicks.length === 0 && res.log.otherClicks === 0 && /è già firmata da te \(Rossi Mario\)/.test(res.r.summary) &&
+      res.steps.some(s => /BIANCHI ANNA \(firmata, di un altro docente\); Rossi Mario \(firmata, tua\)/.test(s)),
+      `giornale «Rossi Mario», impostazioni «${cognome.trim()}» + «${nome}» (${come}): riconosce la tua riga firmata tra quelle dei colleghi`, stepsText(res) + ' = ' + (res.r.summary || res.r.error));
+  }
+  res = await run({ ...SOLO_NOME, signed: ['4B#3'] }, 'firma', '10:12', [], { cognome: 'Rosso', nome: 'Mario' });
+  check(!res.r.ok && res.log.signClicks.length === 0 && /non trovo la tua riga/.test(res.r.error), '…ma un cognome diverso («Rosso») non viene scambiato per il tuo', res.r.error);
+  res = await run({ ...SOLO_NOME, signed: ['4B#3'], docenteRiga: 'Rossi Maria' }, 'firma', '10:12', [], { cognome: 'Rossi', nome: 'Mario' });
+  check(!res.r.ok && res.log.signClicks.length === 0, '…né un collega con lo stesso cognome e un nome simile («Rossi Maria»)', res.r.error);
+  res = await run({ ...SOLO_NOME }, 'firma', '10:12', [], { cognome: 'Rossi', nome: 'Mario' });
+  check(res.r.ok && res.log.signClicks.join() === '4B#3' && res.log.otherClicks === 0 && res.steps.some(s => /riga di Rossi Mario/.test(s)),
+    'giornale «Rossi Mario» da firmare: clicca la riga con il tuo cognome e nome, non quella del collega', stepsText(res));
+  res = await run({ ...SOLO_NOME, docenteRiga: 'ROSSI MARIO (SUPPLENZA)', signed: ['4B#3'] }, 'firma', '10:12', [], { cognome: 'Rossi', nome: 'Mario' });
+  check(res.r.ok && /già firmata da te/.test(res.r.summary), '«ROSSI MARIO (SUPPLENZA)» nella colonna «Docente»: riconosciuto lo stesso', res.r.summary || res.r.error);
+  // con i dati di DidUP il nome che il ponte legge dal giornale («Cognome Nome») finisce nei passi
+  res = await run({ ...ART, docenteRiga: 'Rossi Mario' }, 'firma', '10:12', [], { cognome: 'Rossi', nome: 'Mario' });
+  check(res.r.ok && res.log.signClicks.join() === '4B#3' && res.steps.some(s => /Rossi Mario \(da firmare, tua\)/.test(s)), 'con i dati di DidUP: stessa riga, stesso nome nei passi', stepsText(res));
 
   p = await evaluate(`return [ArgoAzioni.sameName('ROSSI MARIO', 'Mario Rossi'), ArgoAzioni.sameName('ROSSI MARIO', 'ROSSI MARIO GIUSEPPE'), ArgoAzioni.sameName('ROSSI MARIO', 'ROSSI ANNA'), ArgoAzioni.sameName('ROSSI', 'ROSSI ANNA')]`);
   check(JSON.stringify(p) === '[true,true,false,false]', 'confronto dei nomi: stesso nome in ordine diverso sì, altro docente con lo stesso cognome no', JSON.stringify(p));

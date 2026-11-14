@@ -42,7 +42,7 @@ Ogni funzione si può togliere dalle impostazioni. La prima volta che le incontr
 
 L'estensione non è sul Chrome Web Store: si installa da una cartella, come "estensione non pacchettizzata". Bastano pochi minuti.
 
-1. **Scarica l'ultima versione.** Apri la pagina dell'[**ultima release**](https://github.com/madxit/argo_didup_booster/releases/latest) e, sotto *Assets*, scarica **`argo_didup_booster-X.Y.Z.zip`**, dove `X.Y.Z` è la versione (es. `argo_didup_booster-1.3.0.zip`). Non serve *Source code*: contiene anche i file per gli sviluppatori.
+1. **Scarica l'ultima versione.** Apri la pagina dell'[**ultima release**](https://github.com/madxit/argo_didup_booster/releases/latest) e, sotto *Assets*, scarica **`argo_didup_booster-X.Y.Z.zip`**, dove `X.Y.Z` è la versione (es. `argo_didup_booster-1.3.1.zip`). Non serve *Source code*: contiene anche i file per gli sviluppatori.
 2. **Estrai il file zip** (doppio clic su Mac; su Windows tasto destro → *Estrai tutto*). Ottieni la cartella **`argo_didup_booster`**.
 3. **Sposta la cartella in una posizione che non cambierà nel tempo** e **non cancellarla dopo l'installazione**: Chrome legge i file direttamente da lì. Se la sposti o la rinomini, Chrome la considera un'estensione nuova e le impostazioni ripartono da zero. Consiglio:
    - crea una cartella **`Estensioni Chrome`** nella tua cartella personale: su Mac è quella con la casetta (nel Finder: *Vai → Inizio*), su Windows `C:\Users\<tuo nome>\`;
@@ -252,7 +252,7 @@ La riga di stato sotto l'interruttore indica l'ultimo controllo, quando ci sarà
 
 ## Versione e informazioni
 
-In cima alle **Impostazioni**, accanto al nome, c'è la **versione** installata (es. `v1.3.0`). Ti serve quando chiedi aiuto o devi controllare di avere l'ultima versione: confrontala con quella dell'[ultima release](https://github.com/madxit/argo_didup_booster/releases/latest). Il pulsante **GitHub** in alto a destra (e il link in fondo alla pagina) apre il progetto, dove trovi gli aggiornamenti e puoi segnalare un problema.
+In cima alle **Impostazioni**, accanto al nome, c'è la **versione** installata (es. `v1.3.1`). Ti serve quando chiedi aiuto o devi controllare di avere l'ultima versione: confrontala con quella dell'[ultima release](https://github.com/madxit/argo_didup_booster/releases/latest). Il pulsante **GitHub** in alto a destra (e il link in fondo alla pagina) apre il progetto, dove trovi gli aggiornamenti e puoi segnalare un problema.
 
 ## Aggiornare l'estensione
 
