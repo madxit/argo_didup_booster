@@ -6,7 +6,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { prepareMockExtension, workDir, killOnExit, CHROME as CHROME_BIN } from './lib/prepare.mjs';
+import { prepareMockExtension, workDir, killOnExit, DISCLAIMER_OK, CHROME as CHROME_BIN } from './lib/prepare.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const EXT = prepareMockExtension();
@@ -194,13 +194,34 @@ const URLS = { argoLoginUrl: `${BASE}/auth/sso/login`, argoDashboardPattern: `${
 async function setStore(obj, extra = '') {
   await navigate(`${BASE}/ext/options.html`, 400);
   await evaluate(`localStorage.clear(); ${extra}
-    localStorage.setItem('__mockStore', JSON.stringify(${JSON.stringify({ schemaVersion: 1, ...obj })}));`);
+    localStorage.setItem('__mockStore', JSON.stringify(${JSON.stringify({ schemaVersion: 2, disclaimer: DISCLAIMER_OK, docenteCognome: 'ROSSI', docenteNome: 'MARIO', ...obj })}));`);
 }
 const toast = () => evaluate(`const h = document.querySelector('[data-argo-assistant="toast"]'); return h ? h.shadowRoot.querySelector('.t').innerText : null;`);
 
 // ============ ACCESSO AUTOMATICO ============
 console.log('\n[Accesso automatico]');
 const base = { codiceScuola: 'SG18328', loginMethod: 'spid', spidProvider: 'posteid', autoLogin: true, guidaPulsanti: false, guidaArgomenti: false, ...URLS };
+
+// Avvertenze d'uso non ancora accettate: l'estensione non fa nulla, avvisa soltanto
+resetStats();
+await setStore({ ...base, disclaimer: null });
+await navigate(`${BASE}/voti/`, 2500);
+check(stats.eidPosts.length === 0 && await evaluate(`return document.getElementById('customer_code').value === '' && !document.getElementById('shared_remember_me').checked`),
+  'avvertenze non accettate: nella pagina di accesso di Argo l\'estensione non compila e non preme nulla');
+check((await toast() || '').includes('non è ancora attivo') && (await toast() || '').includes('Leggi le avvertenze'), '…e lo spiega, con il pulsante «Leggi le avvertenze»', await toast());
+await evaluate(`window.__calls = []; document.querySelector('[data-argo-assistant="toast"]').shadowRoot.querySelector('.actions button').click();`);
+check((await evaluate(`return window.__calls`)).some(c => c[0] === 'sendMessage' && c[1].type === 'open-options'), '«Leggi le avvertenze» apre le impostazioni');
+await evaluate(`await chrome.storage.local.set({ disclaimer: ${JSON.stringify(DISCLAIMER_OK)} });`);
+await sleep(2500);
+check(stats.eidPosts[0] === 'SG18328' && stats.idp[0] === 'posteid', 'avvertenze accettate con la pagina di accesso aperta: l\'accesso automatico parte subito');
+resetStats();
+await setStore({ ...base, disclaimer: { accepted: false, version: 1, at: 1 } });
+await navigate(`${BASE}/voti/`, 2500);
+check(stats.eidPosts.length === 0 && !(await toast()), 'avvertenze rifiutate: nessuna azione e nessun avviso nelle pagine di Argo');
+resetStats();
+await setStore({ ...base, disclaimer: { accepted: true, version: 0, at: 1 } });
+await navigate(`${BASE}/voti/`, 2500);
+check(stats.eidPosts.length === 0, 'accettazione di una versione precedente delle avvertenze: va rinnovata, l\'estensione resta ferma');
 
 resetStats();
 await setStore(base);
@@ -459,10 +480,30 @@ async function loadBackground(settingsObj, argoTabs) {
       await new Promise(r => sc.onload = r);
     }`);
 }
+// Avvertenze non accettate: il clic sull'icona apre le impostazioni (dove si leggono), il mantenimento non tocca le schede
+await loadBackground({ codiceScuola: 'SG18328', keepAliveEnabled: true, disclaimer: null }, [{ id: 41, windowId: 4, active: false, autoDiscardable: true, url: 'https://www.portaleargo.it/voti/?classic' }]);
+await evaluate(`window.__calls = []; window.__executeScriptReply = [{ result: { state: 'ok', loadedAt: Date.now() - 30 * 60000, lastActivity: Date.now() - 11 * 60000 } }];
+  await window.__listeners['action.onClicked'][0]({ id: 3, url: undefined });
+  window.__listeners['alarms.onAlarm'][0]({ name: 'argo-keepalive' }); await new Promise(r => setTimeout(r, 250));
+  await updateBadge();
+  for (const fn of window.__listeners['runtime.onInstalled']) await fn({ reason: 'update' });`);
+let calls = await evaluate(`return window.__calls`);
+check(calls.filter(c => c[0] === 'openOptionsPage').length === 2 && !calls.some(c => ['tabs.create', 'tabs.update', 'tabs.reload', 'tabs.sendMessage'].includes(c[0])) &&
+  !calls.some(c => c[0] === 'executeScript' && c[1].func) && !(await store()).loginFlow && !(await store()).keepAliveStatus,
+  'avvertenze non accettate: il clic sull\'icona e l\'aggiornamento aprono le impostazioni; nessun accesso, nessun controllo né ricarica delle schede', JSON.stringify(calls.map(c => c[0])));
+check(calls.some(c => c[0] === 'action.setBadgeText' && c[1].text === '!') && calls.some(c => c[0] === 'action.setTitle' && /leggi e accetta le avvertenze/.test(c[1].title)),
+  '…e l\'icona lo segnala (badge «!» e descrizione)');
+await evaluate(`await chrome.storage.local.set({ disclaimer: { accepted: false, version: 1, at: 1 } }); window.__calls = [];
+  for (const fn of window.__listeners['runtime.onInstalled']) await fn({ reason: 'update' });
+  await window.__listeners['action.onClicked'][0]({ id: 3, url: undefined });`);
+calls = await evaluate(`return window.__calls`);
+check(calls.filter(c => c[0] === 'openOptionsPage').length === 1 && !calls.some(c => c[0] === 'tabs.create'),
+  'avvertenze rifiutate: gli aggiornamenti non riaprono la pagina; il clic sull\'icona sì (istruzioni per disinstallare)', JSON.stringify(calls.map(c => c[0])));
+
 await loadBackground({ codiceScuola: 'SG18328' }, []);
 await evaluate(`window.__calls = []; await window.__listeners['action.onClicked'][0]({ id: 3, url: undefined });`);
 await sleep(100);
-let calls = await evaluate(`return window.__calls`);
+calls = await evaluate(`return window.__calls`);
 check(calls.some(c => c[0] === 'tabs.create' && c[1].url === 'https://www.portaleargo.it/voti/') && (await store()).loginFlow?.stage === 'argo',
   'clic sull\'icona fuori da Argo: apre /voti e avvia l\'accesso');
 

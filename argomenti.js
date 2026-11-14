@@ -25,6 +25,7 @@
   const STOPWORDS = new Set(['e', 'ed', 'di', 'del', 'della', 'dei', 'delle', 'degli', 'la', 'il', 'lo', 'le', 'gli', 'i', 'a', 'al', 'alla', 'in', 'per', 'con']);
 
   let settings = null;
+  let accepted = false;        // avvertenze d'uso accettate (impostazioni): senza, niente pulsante
   let picker = null;
   let guideShown = false;
   const KINDS = {
@@ -206,7 +207,7 @@
   function scan() {
     if (!isCurrent()) { observer.disconnect(); return; }
     if (!settings || !isArgoDashboardUrl(location.href, settings)) return;
-    if (!settings.showArgomenti) { removeButtons(); return; }
+    if (!settings.showArgomenti || !accepted) { removeButtons(); return; }
     for (const title of findTitles()) {
       const host = injectButton(title);
       if (host) maybeShowGuide(host);
@@ -548,6 +549,10 @@
 
   chrome.storage.onChanged.addListener(async (changes, area) => {
     if (area !== 'local' || !isCurrent()) return;
+    if (changes.disclaimer) {
+      accepted = disclaimerOk(changes.disclaimer.newValue);
+      if (settings) scan();
+    }
     if (changes.discipline || changes.argoDashboardPattern || changes.argoLoginUrl || changes.buttonsTheme ||
         changes.showArgomenti || changes.guidaArgomenti) {
       settings = await loadSettings();
@@ -563,8 +568,9 @@
     }
   });
 
-  loadSettings().then(s => {
+  Promise.all([loadSettings(), isDisclaimerAccepted()]).then(([s, ok]) => {
     settings = s;
+    accepted = ok;
     if (!isArgoPortalUrl(location.href) && !isArgoDashboardUrl(location.href, s)) return;
     observer.observe(document.documentElement, { childList: true, subtree: true });
     // Ext ridispone le finestre senza aggiungere nodi (es. ridimensionamento): si riallinea spesso, costa poco.

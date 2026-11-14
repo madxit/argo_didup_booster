@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
-import { prepareMockExtension, workDir, killOnExit, CHROME, PROJECT } from './lib/prepare.mjs';
+import { prepareMockExtension, workDir, killOnExit, DISCLAIMER_OK, CHROME, PROJECT } from './lib/prepare.mjs';
 
 const EXT = prepareMockExtension();
 const MOCK = fs.readFileSync(path.join(PROJECT, 'tests', 'mock', 'didup-mock.html'), 'utf8');
@@ -17,7 +17,7 @@ const PORT = 9343;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 const SETTINGS = {
-  schemaVersion: 1, codiceScuola: 'SG12345', docenteNome: 'ROSSI MARIO', loginMethod: 'spid', spidProvider: 'posteid',
+  schemaVersion: 2, disclaimer: DISCLAIMER_OK, codiceScuola: 'SG12345', docenteCognome: 'ROSSI', docenteNome: 'MARIO', loginMethod: 'spid', spidProvider: 'posteid',
   autoLogin: true, ricordami: true, keepAliveEnabled: true, buttonsPosition: 'right', buttonsTheme: 'argo', guidaPulsanti: false, guidaArgomenti: false,
   discipline: [
     { nome: 'Informatica', argomenti: ['Algoritmi e diagrammi di flusso', 'Variabili e tipi di dato', 'Strutture di selezione', 'Cicli for e while', 'Array e matrici'],
@@ -258,6 +258,12 @@ await store({ ...SETTINGS, guidaArgomenti: true, argoDashboardPattern: `${BASE}/
 await navigate(`${BASE}/voti/?classic`, 300);
 await waitGuide();
 await shot('guida-argomenti.png');
+
+// Avvertenze d'uso al primo avvio (non ancora accettate)
+await navigate(`${BASE}/ext/options.html`, 100);
+await store({ ...SETTINGS, disclaimer: undefined });
+await navigate(`${BASE}/ext/options.html`, 700);
+await shot('avvertenze.png', '#disclaimer-dialog', 14);
 
 ws.close();
 chrome.kill('SIGKILL');

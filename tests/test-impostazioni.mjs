@@ -94,7 +94,66 @@ await navigate(`${BASE}/ext/options.html`);
 await evaluate(`localStorage.clear(); localStorage.setItem('__mockSync', JSON.stringify({ docenteNome: 'ROSSI  MARIO', password: 'segreta', username: 'x' }));`);
 await navigate(`${BASE}/ext/options.html`);
 let s = await store();
-check(s.schemaVersion === 1 && s.docenteNome === 'ROSSI MARIO' && !('password' in s), 'migrazione da storage.sync (solo campi utili)');
+check(s.schemaVersion === 2 && s.docenteCognome === 'ROSSI' && s.docenteNome === 'MARIO' && !('password' in s), 'migrazione da storage.sync (solo campi utili; «Cognome e nome» diviso in due campi)', JSON.stringify(s));
+
+// ---- Avvertenze d'uso: al primo avvio vanno lette e accettate ----
+// (si controlla ciò che si vede: elementFromPoint e dimensioni, non gli attributi)
+const discView = () => evaluate(`
+  const dlg = document.getElementById('disclaimer-dialog'), r = dlg.getBoundingClientRect();
+  const top = r.width ? document.elementFromPoint(r.left + r.width / 2, r.top + 20) : null;
+  const vis = id => { const b = document.getElementById(id).getBoundingClientRect(); return b.width > 0 && b.height > 0; };
+  const blocked = document.getElementById('disclaimer-blocked');
+  const sec = document.getElementById('sec-scuola'), sr = sec.getBoundingClientRect();
+  return { open: dlg.open && r.width > 300 && Boolean(top && dlg.contains(top)), text: dlg.textContent.replace(/\\s+/g, ' '),
+    accept: vis('disclaimer-accept'), acceptDisabled: document.getElementById('disclaimer-accept').disabled, close: vis('disclaimer-close'),
+    check: vis('disclaimer-check'), decline: document.getElementById('disclaimer-decline').textContent,
+    blocked: blocked.getBoundingClientRect().height > 0, blockedText: blocked.textContent.replace(/\\s+/g, ' '),
+    inert: sec.inert, sectionClickable: getComputedStyle(sec).pointerEvents !== 'none',
+    issues: document.getElementById('disclaimer-issues').href, active: document.activeElement && document.activeElement.id };`);
+const pressEsc = async () => {
+  for (const type of ['keyDown', 'keyUp']) await send('Input.dispatchKeyEvent', { type, key: 'Escape', code: 'Escape', windowsVirtualKeyCode: 27 });
+  await sleep(250);
+};
+let dv = await discView();
+check(dv.open && dv.accept && dv.acceptDisabled && !dv.close && dv.check && dv.inert && dv.decline === 'Non accetto' && !('disclaimer' in s),
+  'primo avvio: finestra delle avvertenze aperta, «Accetto» spento finché non si spunta la casella, impostazioni bloccate', JSON.stringify({ ...dv, text: '' }));
+check(/non ufficiale/i.test(dv.text) && /Argo Software/.test(dv.text) && /Ministero dell'Istruzione e del Merito \(MIM\)/.test(dv.text) && /senza alcuna garanzia/i.test(dv.text) &&
+  /non risponde di errori/i.test(dv.text) && /elenco dei passi/.test(dv.text) && /Issues/.test(dv.text) && dv.issues === 'https://github.com/madxit/argo_didup_booster/issues',
+  'avvertenze: software non ufficiale (né Argo né MIM), nessuna garanzia né responsabilità, controllare i passi, segnalazioni nelle Issues di GitHub', dv.issues);
+await shot('01-avvertenze-primo-avvio');
+await pressEsc();
+dv = await discView();
+check(!('disclaimer' in await store()) && dv.inert && !dv.sectionClickable && (dv.open || dv.blocked),
+  'Esc non vale come accettazione: le impostazioni restano bloccate', JSON.stringify({ open: dv.open, blocked: dv.blocked }));
+if (!dv.open) { await evaluate(`document.getElementById('disclaimer-reread').click();`); await sleep(200); }
+// «Non accetto»: estensione disattivata, istruzioni per disinstallare
+await evaluate(`document.getElementById('disclaimer-decline').click();`);
+await sleep(300);
+dv = await discView(); s = await store();
+check(!dv.open && s.disclaimer && s.disclaimer.accepted === false && s.disclaimer.version === 1 && dv.blocked && dv.inert && !dv.sectionClickable &&
+  /disinstallare l'estensione/.test(dv.blockedText) && /Rimuovi da Chrome/.test(dv.blockedText) && /chrome:\/\/extensions/.test(dv.blockedText),
+  '«Non accetto»: rifiuto salvato, impostazioni bloccate e istruzioni per disinstallare l\'estensione', JSON.stringify({ ...dv, text: '', blockedText: dv.blockedText.slice(0, 80), d: s.disclaimer }));
+await shot('01-avvertenze-rifiutate');
+await evaluate(`document.getElementById('extensions-page-btn').click();`);
+check((await evaluate(`return window.__calls.filter(c => c[0] === 'tabs.create').map(c => c[1].url)`)).join() === 'chrome://extensions/?id=test-ext', '«Apri la pagina delle estensioni» apre chrome://extensions');
+await navigate(`${BASE}/ext/options.html`);
+dv = await discView();
+check(!dv.open && dv.blocked && dv.inert, 'dopo il rifiuto, riaprendo le impostazioni: niente finestra, pagina bloccata con le istruzioni');
+// Ci si ripensa: «Rileggi le avvertenze» → casella → «Accetto»
+await evaluate(`document.getElementById('disclaimer-reread').click();`);
+await sleep(200);
+await evaluate(`document.getElementById('disclaimer-accept').click();`);          // spento: non deve fare nulla
+await sleep(150);
+dv = await discView();
+check(dv.open && dv.acceptDisabled && (await store()).disclaimer.accepted === false, '«Accetto» senza la casella spuntata non fa nulla');
+await evaluate(`document.getElementById('disclaimer-check').click();`);
+await sleep(100);
+await evaluate(`document.getElementById('disclaimer-accept').click();`);
+await sleep(300);
+dv = await discView(); s = await store();
+check(!dv.open && s.disclaimer.accepted === true && s.disclaimer.version === 1 && s.disclaimer.at > 0 && !dv.blocked && !dv.inert && dv.sectionClickable,
+  'casella spuntata + «Accetto»: accettazione salvata con la data, impostazioni sbloccate', JSON.stringify({ ...dv, text: '', blockedText: '', d: s.disclaimer }));
+check(/Avvertenze accettate il /.test(await evaluate(`return document.getElementById('disclaimer-status').textContent`)), 'sezione «Avvertenze d\'uso»: indicata la data di accettazione');
 check(await evaluate(`return !document.getElementById('missing-code-banner').hidden && document.activeElement.id === 'codiceScuola'`), 'banner "codice scuola mancante" visibile e campo a fuoco');
 await shot('01-options-vuote');
 
@@ -166,6 +225,49 @@ await evaluate(`document.getElementById('showAppello').click(); document.getElem
 await sleep(200);
 vis = await visibleInPreview();
 check(vis.buttons.join() === 'firma,appello' && vis.pill && (await store()).guidaPulsanti === true, '…e rimessi', JSON.stringify(vis));
+
+// Modalità del pulsante di firma: «Firma ora» oppure «Firma ore di oggi»
+const firmaRow = () => evaluate(`const radios = [...document.querySelectorAll('input[name=firmaMode]')];
+  const b = document.getElementById('pv-buttons').shadowRoot.querySelector('[data-action=firma]');
+  return { labels: radios.map(r => r.nextElementSibling.textContent).join('|'), checked: (radios.find(r => r.checked) || {}).value, disabled: radios.map(r => r.disabled).join(),
+    title: document.getElementById('firma-title').textContent, desc: document.getElementById('firma-desc').textContent,
+    preview: b ? b.getAttribute('aria-label') + ' / ' + b.querySelector('.tip').textContent : null,
+    missing: document.getElementById('docente-missing').getBoundingClientRect().height > 0,
+    switches: ['showFirma', 'showAppello', 'showArgomenti'].map(id => document.getElementById(id).disabled).join() };`);
+let fr = await firmaRow();
+check(fr.labels === 'Firma ora|Firma ore di oggi' && fr.checked === 'ora' && fr.title === 'Firma ora' && /Firma ora \(Argo DidUP Booster\)/.test(fr.preview) && !fr.missing,
+  'riga «Firma»: selettore «Firma ora» / «Firma ore di oggi», predefinito «Firma ora»', JSON.stringify(fr));
+await evaluate(`document.querySelector('input[name=firmaMode][value=oggi]').click();`);
+await sleep(250);
+fr = await firmaRow();
+check((await store()).firmaMode === 'oggi' && fr.title === 'Firma ore di oggi' && /tutte le tue lezioni di oggi/.test(fr.desc) && /Firma ore di oggi \(Argo DidUP Booster\) \/ Firma ore di oggi: tutte/.test(fr.preview),
+  '«Firma ore di oggi»: salvata; titolo, descrizione e pulsante dell\'anteprima cambiano', JSON.stringify(fr));
+await evaluate(`document.getElementById('showFirma').click();`);
+await sleep(200);
+fr = await firmaRow();
+check(fr.disabled === 'true,true' && fr.preview === null && (await store()).firmaMode === 'oggi', 'pulsante di firma spento: il selettore della modalità si blocca (la scelta resta)', JSON.stringify(fr));
+await evaluate(`document.getElementById('showFirma').click(); document.querySelector('input[name=firmaMode][value=ora]').click();`);
+await sleep(250);
+check((await store()).firmaMode === 'ora' && (await firmaRow()).title === 'Firma ora', '…e si torna a «Firma ora»');
+check(await evaluate(`return sanitizeSettings({ firmaMode: 'boh' }).settings.firmaMode === 'ora' && sanitizeSettings({ firmaMode: 'oggi' }).settings.firmaMode === 'oggi'`), 'modalità di firma sconosciuta (import): torna «Firma ora»');
+
+// Senza cognome e nome del docente Firma e Appello restano disattivati
+await evaluate(`const el = document.getElementById('docenteNome'); el.value = ''; el.dispatchEvent(new Event('input'));`);
+await sleep(600);
+fr = await firmaRow(); vis = await visibleInPreview();
+check(fr.missing && fr.switches === 'true,true,false' && vis.buttons.length === 0 && vis.pill && (await store()).docenteNome === '',
+  'manca il nome del docente: avviso, interruttori di Firma e Appello bloccati, nessun pulsante nell\'anteprima (Argomenti e compiti resta)', JSON.stringify({ fr, vis }));
+await shot('03-funzioni-senza-docente', '#sec-funzioni');
+await evaluate(`const el = document.getElementById('docenteNome'); el.value = 'Mario'; el.dispatchEvent(new Event('input'));`);
+await sleep(600);
+fr = await firmaRow(); vis = await visibleInPreview();
+check(!fr.missing && fr.switches === 'false,false,false' && vis.buttons.join() === 'firma,appello', 'cognome e nome inseriti: Firma e Appello tornano attivi', JSON.stringify({ fr, vis }));
+await evaluate(`const el = document.getElementById('docenteNome'); el.value = 'MARIO'; el.dispatchEvent(new Event('input'));`);
+await sleep(600);
+// la sezione «Esporta / Importa» e l'anteprima non escono dai bordi
+check(await evaluate(`const m = (a, b) => document.querySelector(b).getBoundingClientRect().top - document.querySelector(a).getBoundingClientRect().bottom;
+  const f = document.querySelector('.pv-fieldset').getBoundingClientRect(), p = document.getElementById('preview').getBoundingClientRect();
+  return m('#sec-backup > .hint', '#sec-backup .btn-row') >= 12 && f.right <= p.right - 4;`), 'spazio tra testo e pulsanti di «Esporta / Importa»; nell\'anteprima il riquadro «Registro di classe» resta dentro i bordi');
 // la guida mostrata nel registro spegne la casella anche con le impostazioni aperte
 await evaluate(`await chrome.storage.local.set({ guidaArgomenti: false });`);
 await sleep(150);
@@ -319,9 +421,16 @@ s = await store();
 check(s.discipline.map(d => d.nome).join('|') === 'Fisica|Matematica' && s.discipline[0].argomenti.length === 3, 'annulla eliminazione ripristina disciplina e argomenti');
 
 // Docente
-await evaluate(`const el = document.getElementById('docenteNome'); el.value = '  BIANCHI   ANNA '; el.dispatchEvent(new Event('input'));`);
-await sleep(500);
-check((await store()).docenteNome === 'BIANCHI ANNA', 'nome docente salvato e ripulito');
+check(await evaluate(`return document.getElementById('docenteCognome').value === 'ROSSI' && document.getElementById('docenteNome').value === 'MARIO' &&
+  document.querySelector('label[for=docenteCognome]').getBoundingClientRect().left < document.querySelector('label[for=docenteNome]').getBoundingClientRect().left`),
+  'cognome e nome del docente in due campi separati (prima il cognome, come in Argo)');
+await evaluate(`let el = document.getElementById('docenteCognome'); el.value = '  DE   LUCA '; el.dispatchEvent(new Event('input'));
+  el = document.getElementById('docenteNome'); el.value = ' ANNA  MARIA '; el.dispatchEvent(new Event('input'));`);
+await sleep(600);
+s = await store();
+check(s.docenteCognome === 'DE LUCA' && s.docenteNome === 'ANNA MARIA', 'cognome e nome del docente salvati e ripuliti', JSON.stringify([s.docenteCognome, s.docenteNome]));
+check(await evaluate(`return JSON.stringify(['ROSSI MARIO', 'DE LUCA MARIO', 'ROSSI MARIO GIUSEPPE', 'DI STEFANO ANNA MARIA', 'ROSSI'].map(n => { const x = splitCognomeNome(n); return x.docenteCognome + '|' + x.docenteNome; }))`) ===
+  JSON.stringify(['ROSSI|MARIO', 'DE LUCA|MARIO', 'ROSSI|MARIO GIUSEPPE', 'DI STEFANO|ANNA MARIA', 'ROSSI|']), 'vecchio campo unico «Cognome e nome» diviso: cognome per primo, anche con la particella (DE LUCA)');
 
 // ---- Export ----
 for (const f of fs.readdirSync(DOWNLOADS)) fs.unlinkSync(path.join(DOWNLOADS, f));
@@ -334,13 +443,15 @@ for (let i = 0; i < 30 && !exported; i++) {
 }
 check(Boolean(exported) && /argo-didup-booster-impostazioni-\d{4}-\d{2}-\d{2}\.json$/.test(exported), 'export scarica il file JSON (argo-didup-booster-impostazioni-…)');
 const exp = JSON.parse(fs.readFileSync(exported, 'utf8'));
-check(exp.type === 'settings-export' && exp.settings.codiceScuola === 'SG12345' && exp.settings.discipline.length === 2 && !('keepAliveStatus' in exp.settings) && !('schemaVersion' in exp.settings), 'contenuto export corretto (solo impostazioni)');
+check(exp.type === 'settings-export' && exp.settings.codiceScuola === 'SG12345' && exp.settings.discipline.length === 2 && !('keepAliveStatus' in exp.settings) && !('schemaVersion' in exp.settings) &&
+  exp.settings.docenteCognome === 'DE LUCA' && exp.settings.docenteNome === 'ANNA MARIA' && !('disclaimer' in exp.settings), 'contenuto export corretto (solo impostazioni: cognome e nome sì, accettazione delle avvertenze no)');
 
 // ---- Import: sostituisci ----
 const importFile = path.join(workDir('files'), 'import-test.json');
 fs.writeFileSync(importFile, JSON.stringify({
   ...exp,
-  settings: { ...exp.settings, codiceScuola: 'ab99999', buttonsTheme: 'sepia', keepAliveInterval: 99999, keepAliveMethod: 'boh',
+  // file della 1.2.1: un solo campo «Cognome e nome»
+  settings: { ...exp.settings, docenteCognome: undefined, docenteNome: 'VERDI  LUISA', codiceScuola: 'ab99999', buttonsTheme: 'sepia', keepAliveInterval: 99999, keepAliveMethod: 'boh',
     discipline: [{ nome: 'Storia', argomenti: ['Roma antica', 'roma antica', '  Medioevo '], compiti: ['Ripassare  Roma', 'ripassare roma'] }, { nome: '', argomenti: ['x'] }] }
 }));
 async function setImportFile(file) {
@@ -358,6 +469,9 @@ s = await store();
 check(s.codiceScuola === 'AB99999' && s.buttonsTheme === 'sepia' && !('keepAliveInterval' in s) && !('keepAliveMethod' in s) &&
   JSON.stringify(s.discipline) === JSON.stringify([{ nome: 'Storia', argomenti: ['Roma antica', 'Medioevo'], compiti: ['Ripassare Roma'] }]), 'import "sostituisci" con valori ripuliti/validati (anche i compiti)', JSON.stringify(s.discipline));
 check(await evaluate(`return document.getElementById('codiceScuola').value === 'AB99999' && document.querySelector('#discipline-list li .item-text').textContent === 'Storia'`), 'form aggiornato dopo l\'import');
+check(s.docenteCognome === 'VERDI' && s.docenteNome === 'LUISA' && s.disclaimer.accepted === true &&
+  await evaluate(`return document.getElementById('docenteCognome').value === 'VERDI' && document.getElementById('docenteNome').value === 'LUISA'`),
+  'import di un file della 1.2.1: «Cognome e nome» diviso nei due campi; l\'accettazione delle avvertenze non viene toccata', JSON.stringify([s.docenteCognome, s.docenteNome]));
 
 // ---- Import: aggiungi (merge) dal file esportato ----
 await setImportFile(exported);
@@ -378,6 +492,24 @@ fs.writeFileSync(badFile, '{ non è json');
 await setImportFile(badFile);
 check((await evaluate(`return document.getElementById('backup-msg').textContent`)).includes('non è un file JSON valido'), 'import di un file non valido: messaggio di errore');
 await shot('06-options-finale');
+
+// ---- Avvertenze: si rileggono dalle impostazioni; se non le si accetta più, istruzioni per disinstallare ----
+await evaluate(`document.getElementById('disclaimer-open').scrollIntoView({ block: 'center' }); document.getElementById('disclaimer-open').click();`);
+await sleep(250);
+dv = await discView();
+check(dv.open && dv.close && !dv.accept && !dv.check && dv.decline === 'Non le accetto più' && /Le hai accettate il /.test(dv.text),
+  '«Rileggi le avvertenze»: testo con «Chiudi» e «Non le accetto più», senza chiedere di nuovo l\'accettazione', JSON.stringify({ ...dv, text: '', blockedText: '' }));
+await pressEsc();
+dv = await discView();
+check(!dv.open && (await store()).disclaimer.accepted === true && !dv.blocked, 'avvertenze già accettate: Esc (o «Chiudi») le chiude e non cambia nulla');
+await evaluate(`document.getElementById('disclaimer-open').click();`);
+await sleep(200);
+await evaluate(`document.getElementById('disclaimer-decline').click();`);
+await sleep(300);
+dv = await discView(); s = await store();
+check(!dv.open && s.disclaimer.accepted === false && dv.blocked && dv.inert && /disinstallare l'estensione/.test(dv.blockedText) && s.codiceScuola === 'AB99999',
+  '«Non le accetto più»: estensione disattivata, impostazioni bloccate (non cancellate) e istruzioni per disinstallare', JSON.stringify({ ...dv, text: '', blockedText: '', d: s.disclaimer }));
+await shot('07-avvertenze-ritirate');
 
 // ============ TEST POPUP ============
 // (sezioni Popup e Keep-alive v2.1 superate dalla v2.2: escluse)

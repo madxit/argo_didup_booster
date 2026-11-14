@@ -4,10 +4,17 @@
 // Tutte le impostazioni sono salvate in chrome.storage.local.
 // =====================================================================
 
-var SETTINGS_SCHEMA_VERSION = 1;
+var SETTINGS_SCHEMA_VERSION = 2;   // 2: cognome e nome del docente in due campi separati
 
 // Repository del progetto (link nelle impostazioni).
 var REPO_URL = 'https://github.com/madxit/argo_didup_booster';
+// Pagina delle segnalazioni (indicata nelle avvertenze).
+var ISSUES_URL = REPO_URL + '/issues';
+
+// Avvertenze d'uso (testo in options.html): finché non vengono accettate
+// l'estensione non fa nulla. Se il testo cambia in modo sostanziale si alza
+// il numero: l'accettazione viene chiesta di nuovo.
+var DISCLAIMER_VERSION = 1;
 
 // Mantenimento della sessione (unico metodo, guidato dal service worker,
 // vedi background.js): ogni minuto controlla le schede del registro, anche
@@ -40,9 +47,11 @@ var DEFAULT_SETTINGS = {
   spidProvider: '',                // id di SPID_PROVIDERS, '' = scegli ogni volta
   autoLogin: true,                 // avvia l'accesso appena si apre la pagina di login
   ricordami: true,                 // spunta «Ricordami» nella pagina di accesso di Argo
+  docenteCognome: '',              // come in Argo, che scrive «COGNOME NOME» (es. ROSSI MARIO)
   docenteNome: '',
   keepAliveEnabled: true,
   showFirma: true,                 // funzioni aggiunte al registro (si possono togliere)
+  firmaMode: 'ora',                // cosa fa il pulsante di firma: id di FIRMA_MODES ('ora' | 'oggi')
   showAppello: true,
   showArgomenti: true,
   guidaPulsanti: true,             // guida dei pulsanti alla prossima apertura del registro (si spegne dopo)
@@ -139,6 +148,22 @@ function mergeArgomenti(target, source) {
   return added;
 }
 
+// Fino alla 1.2.1 c'era un solo campo «Cognome e nome» (es. "ROSSI MARIO"):
+// lo si divide in cognome e nome. Con due parole la prima è il cognome; con
+// più parole il cognome è la prima, oppure le prime due se comincia con una
+// particella ("DE LUCA MARIO", "DI STEFANO ANNA MARIA"). L'utente può
+// correggere nelle impostazioni.
+var PARTICELLE_COGNOME = ['de', 'di', 'del', 'della', 'dello', 'dei', 'degli', 'delle', 'da', 'dal', 'dalla', 'dall', 'lo', 'la', 'li', 'le', 'd', 'san', 'santa', 'van', 'von'];
+
+function splitCognomeNome(full) {
+  const words = cleanText(full).split(' ').filter(Boolean);
+  if (words.length <= 1) return { docenteCognome: words[0] || '', docenteNome: '' };
+  const isParticella = w => PARTICELLE_COGNOME.includes(foldText(w).replace(/[^a-z]/g, ''));
+  let n = 1;
+  while (n < words.length - 1 && isParticella(words[n - 1])) n++;
+  return { docenteCognome: words.slice(0, n).join(' '), docenteNome: words.slice(n).join(' ') };
+}
+
 // Restituisce { settings, warnings } con tutti i campi validati.
 function sanitizeSettings(raw) {
   const warnings = [];
@@ -159,7 +184,9 @@ function sanitizeSettings(raw) {
   for (const key of ['autoLogin', 'ricordami', 'keepAliveEnabled', 'showFirma', 'showAppello', 'showArgomenti', 'guidaPulsanti', 'guidaArgomenti']) {
     if (src[key] !== undefined) s[key] = Boolean(src[key]);
   }
+  if (src.docenteCognome !== undefined) s.docenteCognome = cleanText(src.docenteCognome);
   if (src.docenteNome !== undefined) s.docenteNome = cleanText(src.docenteNome);
+  if (src.firmaMode !== undefined) s.firmaMode = FIRMA_MODES.some(m => m.id === src.firmaMode) ? src.firmaMode : DEFAULT_SETTINGS.firmaMode;
   if (src.buttonsPosition !== undefined) {
     if (BUTTON_POSITIONS.some(p => p.id === src.buttonsPosition)) s.buttonsPosition = src.buttonsPosition;
     else warnings.push(`Posizione dei pulsanti "${src.buttonsPosition}" sconosciuta: uso "${DEFAULT_SETTINGS.buttonsPosition}".`);
@@ -238,9 +265,35 @@ var BOOSTER_ACTIONS = [
   { id: 'appello', setting: 'showAppello', label: 'Appello', tip: 'Appello: apre l\'appello della lezione più vicina all\'ora' }
 ];
 
-// Pulsanti della barra attivi nelle impostazioni (Funzioni nel registro).
+// Il pulsante di firma ha due modalità (Impostazioni → Funzioni nel registro):
+// `action` è l'azione di azioni.js che il pulsante avvia.
+var FIRMA_MODES = [
+  { id: 'ora', action: 'firma', label: 'Firma ora', tip: 'Firma ora: la tua lezione in corso o la prossima',
+    desc: 'Firma la tua lezione in corso (o la prossima, dopo averti chiesto il permesso).' },
+  { id: 'oggi', action: 'firma-oggi', label: 'Firma ore di oggi', tip: 'Firma ore di oggi: tutte le tue lezioni di oggi non ancora firmate',
+    desc: 'Firma in una volta tutte le tue lezioni di oggi non ancora firmate, dopo una conferma con l\'elenco delle ore.' }
+];
+
+function firmaMode(s) {
+  return FIRMA_MODES.find(m => m.id === (s && s.firmaMode)) || FIRMA_MODES[0];
+}
+
+// Firma e Appello lavorano sulle righe del docente: senza cognome e nome
+// (Impostazioni → Scuola e accesso) restano disattivati.
+function hasDocente(s) {
+  return Boolean(s && cleanText(s.docenteCognome) && cleanText(s.docenteNome));
+}
+
+// Pulsanti della barra attivi (Funzioni nel registro), con la scritta della
+// modalità di firma scelta. Senza impostazioni: tutti, con le scritte predefinite.
 function enabledActions(s) {
-  return BOOSTER_ACTIONS.filter(a => !s || s[a.setting] !== false);
+  if (!s) return BOOSTER_ACTIONS;
+  if (!hasDocente(s)) return [];
+  return BOOSTER_ACTIONS.filter(a => s[a.setting] !== false).map(a => {
+    if (a.id !== 'firma') return a;
+    const m = firmaMode(s);
+    return { ...a, label: m.label, tip: m.tip, run: m.action };
+  });
 }
 
 var BOOSTER_BUTTON_SIZE = 34;       // come l'immagine del pulsante di aiuto di DidUP (alta 34 px)
@@ -300,13 +353,22 @@ function boosterButtonHtml(action) {
 // versione precedente in chrome.storage.sync.
 async function migrateFromSyncIfNeeded() {
   const { schemaVersion } = await chrome.storage.local.get('schemaVersion');
-  if (schemaVersion) return;
+  if (schemaVersion >= SETTINGS_SCHEMA_VERSION) return;
+  if (schemaVersion) {
+    // Schema 1 → 2: il vecchio campo unico «Cognome e nome» diventa due campi.
+    const old = await chrome.storage.local.get(['docenteCognome', 'docenteNome']);
+    const toSave = { schemaVersion: SETTINGS_SCHEMA_VERSION };
+    if (old.docenteCognome === undefined && cleanText(old.docenteNome)) Object.assign(toSave, splitCognomeNome(old.docenteNome));
+    await chrome.storage.local.set(toSave);
+    return;
+  }
   let legacy = {};
   try {
     legacy = await chrome.storage.sync.get([
       'codiceScuola', 'docenteNome', 'argoLoginUrl', 'argoDashboardPattern', 'basePortalUrl'
     ]);
   } catch (e) { /* storage.sync non disponibile */ }
+  if (cleanText(legacy.docenteNome)) Object.assign(legacy, splitCognomeNome(legacy.docenteNome));
   const { settings } = sanitizeSettings(legacy);
   const toSave = { schemaVersion: SETTINGS_SCHEMA_VERSION };
   for (const key of Object.keys(legacy)) toSave[key] = settings[key];
@@ -353,7 +415,38 @@ function parseImport(json) {
   if (known.length === 0) {
     throw new Error('Il file non contiene impostazioni di Argo DidUP Booster.');
   }
-  return { ...sanitizeSettings(raw), presentKeys: known };
+  // File esportato fino alla 1.2.1: «Cognome e nome» in un solo campo.
+  const src = { ...raw };
+  if (src.docenteCognome === undefined && cleanText(src.docenteNome)) {
+    Object.assign(src, splitCognomeNome(src.docenteNome));
+    known.push('docenteCognome');
+  }
+  return { ...sanitizeSettings(src), presentKeys: known };
+}
+
+// ---------------------------------------------------------------------
+// Avvertenze d'uso: stato in chrome.storage.local, chiave `disclaimer`
+//   { accepted: true | false, version, at }
+// Non fa parte delle impostazioni esportate: ogni persona le accetta sul
+// proprio computer. Senza accettazione nessuna parte dell'estensione lavora
+// (accesso, pulsanti, argomenti, mantenimento della sessione).
+// ---------------------------------------------------------------------
+
+async function getDisclaimer() {
+  const { disclaimer } = await chrome.storage.local.get('disclaimer');
+  return disclaimer && typeof disclaimer === 'object' ? disclaimer : null;
+}
+
+function disclaimerOk(d) {
+  return Boolean(d && d.accepted === true && d.version === DISCLAIMER_VERSION);
+}
+
+async function isDisclaimerAccepted() {
+  try { return disclaimerOk(await getDisclaimer()); } catch (e) { return false; }
+}
+
+function setDisclaimer(accepted) {
+  return chrome.storage.local.set({ disclaimer: { accepted: Boolean(accepted), version: DISCLAIMER_VERSION, at: Date.now() } });
 }
 
 // ---------------------------------------------------------------------

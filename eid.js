@@ -26,6 +26,7 @@
   }
 
   async function run() {
+    if (!await isDisclaimerAccepted()) return;        // avvertenze non accettate: l'estensione non fa nulla
     const flow = await getLoginFlow();
     if (!isFlowStage(flow, 'eid')) return;            // accesso non partito da Argo
     const settings = await loadSettings();

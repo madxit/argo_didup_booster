@@ -3,7 +3,7 @@
 // il nome viene dirottato su un server HTTPS locale con un certificato usa e getta.
 // Non serve Internet. Richiede openssl.
 import { launch, sleep, waitFor } from './lib/cdp-pipe.mjs';
-import { copyExtension, workDir, TESTS } from './lib/prepare.mjs';
+import { copyExtension, workDir, TESTS, DISCLAIMER_OK } from './lib/prepare.mjs';
 import https from 'node:https';
 import { execFileSync } from 'node:child_process';
 import { readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
@@ -50,7 +50,30 @@ try {
     if (r.exceptionDetails) throw new Error(r.exceptionDetails.exception?.description || r.exceptionDetails.text);
     return r.result.value;
   };
-  await swEval(`chrome.storage.local.set({ codiceScuola: 'SG18328', autoLogin: false, keepAliveEnabled: false, guidaPulsanti: false, guidaArgomenti: false })`);
+  // ---- Primo avvio: avvertenze da leggere e accettare; fino ad allora l'estensione non fa nulla ----
+  console.log('\n[Primo avvio: avvertenze d\'uso]');
+  const optT = await waitFor(async () => (await b.send('Target.getTargets')).targetInfos.find(t => t.url.includes('/options.html')), { label: 'impostazioni al primo avvio', timeout: 15000 }).catch(() => null);
+  const { sessionId: oS } = optT ? await b.send('Target.attachToTarget', { targetId: optT.targetId, flatten: true }) : {};
+  const oEval = async expr => (await b.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true }, oS)).result.value;
+  const dlgOpen = optT && await waitFor(() => oEval(`(() => { const d = document.getElementById('disclaimer-dialog'); return !!(d && d.open && d.getBoundingClientRect().width > 300); })()`), { label: 'avvertenze', timeout: 10000 }).catch(() => false);
+  check('prima installazione: si aprono le impostazioni con le avvertenze da accettare', Boolean(dlgOpen));
+  await swEval(`chrome.storage.local.set({ codiceScuola: 'SG18328', docenteCognome: 'ROSSI', docenteNome: 'MARIO', autoLogin: false, keepAliveEnabled: false, guidaPulsanti: false, guidaArgomenti: false })`);
+  const { targetId: nT } = await b.send('Target.createTarget', { url: `https://www.portaleargo.it/voti/?classic#${encodeURIComponent(JSON.stringify({ times }))}` });
+  const { sessionId: nS } = await b.send('Target.attachToTarget', { targetId: nT, flatten: true });
+  const nEval = async expr => (await b.send('Runtime.evaluate', { expression: expr, returnByValue: true, awaitPromise: true }, nS)).result.value;
+  // pulsanti visibili davvero (dimensioni), non solo presenti
+  const barShown = `(() => { const h = document.querySelector('[data-argo-assistant="toolbar"]'); if (!h) return false; const r = h.getBoundingClientRect(); return r.width > 0 && r.height > 0; })()`;
+  await waitFor(async () => (await nEval('document.readyState')) === 'complete' && (await nEval(`!!document.querySelector('.dashboard-card')`)), { label: 'registro finto', timeout: 15000 });
+  await sleep(2500);
+  const iconBefore = await swEval(`chrome.tabs.query({ url: 'https://www.portaleargo.it/*' }).then(t => handleIconClick(t[0])).then(r => r.reason)`);
+  check('avvertenze non accettate: nel registro nessun pulsante dell\'estensione; il clic sull\'icona porta alle avvertenze', (await nEval(barShown)) === false && iconBefore === 'disclaimer', iconBefore);
+  if (dlgOpen) await oEval(`(() => { document.getElementById('disclaimer-check').click(); document.getElementById('disclaimer-accept').click(); })()`);
+  const barAfter = await waitFor(() => nEval(barShown), { label: 'pulsanti dopo l\'accettazione', timeout: 8000 }).catch(() => false);
+  const accepted = await swEval(`chrome.storage.local.get('disclaimer').then(x => x.disclaimer)`);
+  check('avvertenze accettate nelle impostazioni: i pulsanti compaiono subito nel registro già aperto', Boolean(barAfter) && accepted && accepted.accepted === true && accepted.version === 1, JSON.stringify(accepted));
+  await b.send('Target.closeTarget', { targetId: nT });
+
+  await swEval(`chrome.storage.local.set({ disclaimer: ${JSON.stringify(DISCLAIMER_OK)}, codiceScuola: 'SG18328', autoLogin: false, keepAliveEnabled: false, guidaPulsanti: false, guidaArgomenti: false })`);
   for (const t of (await b.send('Target.getTargets')).targetInfos) if (t.url.includes('/options.html')) await b.send('Target.closeTarget', { targetId: t.targetId });
 
   async function scenario(label, cfg, action, keepOpen = false) {

@@ -29,6 +29,7 @@
   const GUIDE_STABLE_TICKS = 4;  // la barra deve restare ferma ~2,4 s prima della guida
 
   let settings = null;
+  let accepted = false;        // avvertenze d'uso accettate (impostazioni): senza, niente pulsanti
   let bar = null;              // { host, root, themeStyle, buttons, ids }
   let running = false;
   let guideTicks = 0;
@@ -130,6 +131,9 @@
     bar.host.dataset.theme = buttonTheme(settings.buttonsTheme).id;
   }
 
+  // Pulsanti e loro scritte (cambiano con la modalità di firma).
+  const barKey = actions => actions.map(a => `${a.id}:${a.label}`).join();
+
   function createBar() {
     if (bar) bar.host.remove();
     const host = document.createElement('div');
@@ -157,12 +161,12 @@
       buttons[a.id] = b;
     }
     document.body.appendChild(host);
-    bar = { host, root, themeStyle: root.querySelector('.theme'), buttons, ids: actions.map(a => a.id) };
+    bar = { host, root, themeStyle: root.querySelector('.theme'), buttons, ids: actions.map(a => a.id), key: barKey(actions) };
     applyTheme();
     place();
   }
 
-  const barMatchesSettings = () => bar && bar.ids.join() === enabledActions(settings).map(a => a.id).join();
+  const barMatchesSettings = () => bar && bar.key === barKey(enabledActions(settings));
 
   function setBusy(action) {
     if (!bar) return;
@@ -344,7 +348,10 @@
   })();
 
   async function runAction(action) {
-    const title = action === 'appello' ? 'Appello' : 'Firma ora';
+    // Il pulsante di firma avvia «Firma ora» o «Firma ore di oggi» secondo le impostazioni.
+    const mode = firmaMode(settings);
+    const title = action === 'appello' ? 'Appello' : mode.label;
+    const run = action === 'firma' ? mode.action : action;
     if (running) { panel.show(); return; }
     if (typeof ArgoAzioni === 'undefined') {
       panel.open(title);
@@ -358,9 +365,9 @@
     panel.open(title);
     let result;
     try {
-      result = await ArgoAzioni.esegui(action, s => panel.addStep(s), {
+      result = await ArgoAzioni.esegui(run, s => panel.addStep(s), {
         ask: (q, o) => panel.ask(q, o),
-        docenteNome: settings.docenteNome
+        docente: { cognome: settings.docenteCognome, nome: settings.docenteNome }
       });
     } catch (err) {
       result = { ok: false, error: String((err && err.message) || err) };
@@ -423,9 +430,12 @@
         'Passa sopra con il mouse per leggere cosa fanno. Quando li premi, sotto si apre l\'elenco dei passi: cosa è stato cliccato e perché.'
     }];
     if (bar.ids.includes('firma')) steps.push({
-      target: btn('firma'), round: true, title: 'Firma ora',
-      text: 'Va nella Home, legge gli orari delle tue lezioni di oggi e firma quella in corso (o la prossima).\n' +
-        'Nelle classi articolate firma solo la tua riga. Se l\'ora non è in corso, prima ti chiede il permesso. Non clicca mai un\'ora già firmata.'
+      target: btn('firma'), round: true, title: firmaMode(settings).label,
+      text: (settings.firmaMode === 'oggi'
+        ? 'Va nella Home, legge le tue lezioni di oggi e, dopo averti mostrato l\'elenco e chiesto conferma, firma tutte quelle non ancora firmate, una classe alla volta.\n'
+        : 'Va nella Home, legge gli orari delle tue lezioni di oggi e firma quella in corso (o la prossima). Se l\'ora non è in corso, prima ti chiede il permesso.\n') +
+        'Nelle classi articolate firma solo la tua riga. Non clicca mai un\'ora già firmata. ' +
+        'Nelle impostazioni puoi scegliere tra «Firma ora» e «Firma ore di oggi».'
     });
     if (bar.ids.includes('appello')) steps.push({
       target: btn('appello'), round: true, title: 'Appello',
@@ -452,8 +462,9 @@
       if (bar) bar.host.remove();
       return;
     }
-    if (!settings || !isArgoDashboardUrl(location.href, settings)) {
+    if (!settings || !accepted || !isArgoDashboardUrl(location.href, settings)) {
       if (bar) bar.host.style.display = 'none';
+      if (!accepted && !running) panel.close();
       return;
     }
     if (!bar || !bar.host.isConnected || !barMatchesSettings()) createBar();
@@ -465,7 +476,11 @@
   let timer = null;
   chrome.storage.onChanged.addListener(async (changes, area) => {
     if (area !== 'local' || !isCurrent()) return;
-    if (['buttonsTheme', 'buttonsPosition', 'docenteNome', 'argoDashboardPattern', 'argoLoginUrl', 'showFirma', 'showAppello', 'guidaPulsanti'].some(k => k in changes)) {
+    if (changes.disclaimer) {
+      accepted = disclaimerOk(changes.disclaimer.newValue);
+      if (settings) tick();
+    }
+    if (['buttonsTheme', 'buttonsPosition', 'docenteCognome', 'docenteNome', 'argoDashboardPattern', 'argoLoginUrl', 'showFirma', 'firmaMode', 'showAppello', 'guidaPulsanti'].some(k => k in changes)) {
       settings = await loadSettings();
       if (changes.guidaPulsanti && changes.guidaPulsanti.newValue === true) guideShown = false;   // riattivata dalle impostazioni
       applyTheme();
@@ -474,8 +489,9 @@
     }
   });
 
-  loadSettings().then(s => {
+  Promise.all([loadSettings(), isDisclaimerAccepted()]).then(([s, ok]) => {
     settings = s;
+    accepted = ok;
     if (!isArgoPortalUrl(location.href) && !isArgoDashboardUrl(location.href, s)) return;
     tick();
     // La barra di DidUP compare dopo l'accesso e cambia con la finestra: si ricontrolla spesso (costa poco).

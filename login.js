@@ -8,6 +8,8 @@
 // Protezione anti-loop: dopo un tentativo automatico, per 90 secondi non
 // riparte da solo (es. SPID annullato o fallito) e propone "Riprova".
 // Un clic sull'icona dell'estensione invece lo fa ripartire sempre.
+// Finché le avvertenze d'uso non sono state accettate (impostazioni) non
+// fa nulla: avvisa soltanto, una volta, nella pagina di accesso.
 // =====================================================================
 
 (() => {
@@ -112,7 +114,22 @@
     }
   }
 
+  // Avvertenze non accettate: nessun accesso automatico. Nella pagina di
+  // accesso si spiega perché (non se sono già state rifiutate).
+  async function explainNotAccepted() {
+    const d = await getDisclaimer();
+    if (d && d.accepted === false) return;
+    if (!await waitForElement(findLoginForm, PAGE_WAIT_MS)) return;
+    assistantToast.show('Argo DidUP Booster non è ancora attivo',
+      'Per usare l\'accesso automatico e le altre funzioni leggi e accetta le avvertenze d\'uso.',
+      { actions: [{ label: 'Leggi le avvertenze', onClick: openExtensionOptions }] });
+  }
+
+  let started = false;
   async function run() {
+    if (!await isDisclaimerAccepted()) { await explainNotAccepted(); return; }
+    if (started) return;
+    started = true;
     const settings = await loadSettings();
     const url = location.href;
 
@@ -164,11 +181,20 @@
   // Clic sull'icona dell'estensione (o "Accedi ora") su questa pagina.
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (!msg || msg.type !== 'argo-login-now') return;
-    Promise.all([loadSettings(), waitForElement(findLoginForm, 3000)])
-      .then(([s, form]) => (form ? startLogin(s, { manual: true }) : false))
+    Promise.all([loadSettings(), waitForElement(findLoginForm, 3000), isDisclaimerAccepted()])
+      .then(([s, form, accepted]) => (form && accepted ? startLogin(s, { manual: true }) : false))
       .then(ok => sendResponse({ ok }))
       .catch(err => sendResponse({ ok: false, error: String(err.message || err) }));
     return true;
+  });
+
+  // Avvertenze accettate mentre la pagina è aperta: si parte adesso.
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== 'local' || !changes.disclaimer || started || !extensionAlive()) return;
+    if (disclaimerOk(changes.disclaimer.newValue)) {
+      assistantToast.hide();
+      run().catch(err => console.warn('[Argo DidUP Booster] Accesso automatico:', err));
+    }
   });
 
   run().catch(err => console.warn('[Argo DidUP Booster] Accesso automatico:', err));

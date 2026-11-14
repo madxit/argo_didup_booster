@@ -6,7 +6,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { prepareMockExtension, workDir, killOnExit, CHROME as CHROME_BIN } from './lib/prepare.mjs';
+import { prepareMockExtension, workDir, killOnExit, DISCLAIMER_OK, CHROME as CHROME_BIN } from './lib/prepare.mjs';
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const EXT = prepareMockExtension();
@@ -85,17 +85,17 @@ try {
   await send('Runtime.enable');
   // Impostazioni del finto chrome.storage: il registro finto è servito da questo server.
   // (guide della prima volta spente: hanno un test a parte più sotto)
-  const STORE = { schemaVersion: 1, argoDashboardPattern: `${BASE}/voti/`, argoLoginUrl: `${BASE}/auth/sso/login`, basePortalUrl: `${BASE}/voti/`,
+  const STORE = { schemaVersion: 2, disclaimer: DISCLAIMER_OK, docenteCognome: 'ROSSI', docenteNome: 'MARIO', argoDashboardPattern: `${BASE}/voti/`, argoLoginUrl: `${BASE}/auth/sso/login`, basePortalUrl: `${BASE}/voti/`,
     guidaPulsanti: false, guidaArgomenti: false };
   await navigate(`${BASE}/voti/app?n=0`, 300);
   await evaluate(`localStorage.setItem('__mockStore', ${JSON.stringify(JSON.stringify(STORE))})`);
 
-  async function run(cfg, action, now, answers = []) {
+  async function run(cfg, action, now, answers = [], docente = undefined) {
     await navigate(`${BASE}/voti/app?n=${++navCount}#${encodeURIComponent(JSON.stringify(cfg))}`, 900);
     return evaluate(`window.__steps = []; window.__asked = [];
       const answers = ${JSON.stringify(answers)};
       const ask = async (q, o) => { window.__asked.push({ q, yes: o.confirmLabel, no: o.cancelLabel }); return answers.length ? answers.shift() : true; };
-      const r = await ArgoAzioni.esegui(${JSON.stringify(action)}, s => window.__steps.push(s), { now: new Date(${JSON.stringify('2026-11-05T' + now + ':00')}), ask });
+      const r = await ArgoAzioni.esegui(${JSON.stringify(action)}, s => window.__steps.push(s), { now: new Date(${JSON.stringify('2026-11-05T' + now + ':00')}), ask, docente: ${JSON.stringify(docente || null)} });
       return { r, log: window.__didup, steps: window.__steps.map(s => s.text), asked: window.__asked };`);
   }
   const nowReal = new Date();
@@ -206,11 +206,55 @@ try {
   res = await run({ ...ART, pk: false, utente: '', docenteRiga: 'ROSSI MARIO' }, 'firma', '10:12');
   check(res.r.ok && res.log.signClicks.join() === '4B#3', 'senza nome e senza dati: riconosce la riga dall\'icona («da firmare» solo sulle tue, «altro docente» sui colleghi)', stepsText(res));
 
+  // Difetto della 1.2.1: il nome veniva prima dell'icona, e un nome scritto in modo diverso da Argo bloccava la firma.
   res = await run({ ...ART, pk: false, utente: 'ROSSI MARIO' }, 'firma', '10:12');
-  check(!res.r.ok && res.log.signClicks.length === 0 && /non trovo la tua riga per la 3ª ora/.test(res.r.error) && /BIANCHI ANNA, ROSSI MARIO/.test(res.r.error),
-    'nessuna riga con il tuo nome: non clicca nulla e dice quali docenti ha trovato', res.r.error);
+  check(res.r.ok && res.log.signClicks.join() === '4B#3' && res.log.otherClicks === 0,
+    'nome diverso da quello di Argo ma icona arancione «da firmare» (che DidUP mette solo sulle tue righe): firma lo stesso', stepsText(res) + ' ' + (res.r.error || ''));
+  res = await run({ pk: false, utente: '' }, 'firma', '10:12', [], { cognome: 'Rossi', nome: 'Mario' });
+  check(res.r.ok && res.log.signClicks.join() === '4B#3',
+    'cognome e nome delle impostazioni diversi da quelli della riga: l\'icona arancione basta, la firma non si blocca', stepsText(res) + ' ' + (res.r.error || ''));
+
+  res = await run({ ...ART, righeAltrui: ['4B#3'] }, 'firma', '10:12');
+  check(!res.r.ok && res.log.signClicks.length === 0 && res.log.otherClicks === 0 && /non trovo la tua riga per la 3ª ora/.test(res.r.error) &&
+    /BIANCHI ANNA/.test(res.r.error) && /VERDI LUISA — DidUP: «3° ora prevista per un altro docente/.test(res.r.error) && /firmala a mano/.test(res.r.error),
+    'ora assegnata a un collega nel registro: non clicca nulla, dice chi c\'è nelle righe e cosa indica DidUP', res.r.error);
+  res = await run({ righeAltrui: ['4B#3'], pk: false, utente: '' }, 'firma', '10:12', [], { cognome: 'Rossi', nome: 'Mario' });
+  check(!res.r.ok && res.log.signClicks.length === 0 && res.log.otherClicks === 0 && /nella colonna «Docente» non c'è Rossi Mario/.test(res.r.error),
+    '…anche senza i dati di DidUP: mai un clic sull\'icona «+» di un collega; l\'errore cita cognome e nome delle impostazioni', res.r.error);
+
   p = await evaluate(`return [ArgoAzioni.sameName('ROSSI MARIO', 'Mario Rossi'), ArgoAzioni.sameName('ROSSI MARIO', 'ROSSI MARIO GIUSEPPE'), ArgoAzioni.sameName('ROSSI MARIO', 'ROSSI ANNA'), ArgoAzioni.sameName('ROSSI', 'ROSSI ANNA')]`);
   check(JSON.stringify(p) === '[true,true,false,false]', 'confronto dei nomi: stesso nome in ordine diverso sì, altro docente con lo stesso cognome no', JSON.stringify(p));
+  // Cognome e nome separati (impostazioni) contro il «COGNOME NOME» di Argo
+  p = await evaluate(`const m = (t, cognome, nome) => ArgoAzioni.sameDocente(t, { cognome, nome });
+    return [m('ROSSI MARIO', 'Rossi', 'Mario'), m('ROSSI MARIO GIUSEPPE', 'rossi', 'mario'), m('ROSSI MARIO', 'Rossi', 'Mario Giuseppe'), m('MARIO ROSSI', 'Rossi', 'Mario'),
+      m("D'ANGELO MARIA PIA", 'Dangelo', 'Maria'), m('DE LUCA ANNA', 'De LUCA', 'Anna'), m('DELUCA ANNA', 'De LUCA', 'Anna'), m('NICOLÒ ROSSI', 'Rossi', 'Nicolo'), m('ROSSI MARIO', 'Rossi', ''),
+      m('ROSSI ANNA', 'Rossi', 'Mario'), m('ROSSINI MARIO', 'Rossi', 'Mario'), m('ROSSI MARIANNA', 'Rossi', 'Maria'), m('BIANCHI MARIO', 'Rossi', 'Mario'), m('ROSSI MARIO', '', ''), m('', 'Rossi', 'Mario')];`);
+  check(JSON.stringify(p) === '[true,true,true,true,true,true,true,true,true,false,false,false,false,false,false]',
+    'cognome e nome separati: «COGNOME NOME» come in Argo (anche «NOME COGNOME», secondi nomi, apostrofi, accenti e cognomi composti); omonimi di cognome e nomi simili no', JSON.stringify(p));
+  p = await evaluate(`const riga = (o) => Object.assign({ numOra: 3, index: 0, docente: 'ROSSI MARIO', stato: 'firmata', altroDocente: false, etichetta: '' }, o);
+    const mio = t => ArgoAzioni.sameDocente(t, { cognome: 'Rossi', nome: 'Mario' });
+    return ArgoAzioni.assegnaRighe([riga({}), riga({ docente: 'BIANCHI ANNA' }), riga({ docente: 'BIANCHI ANNA', stato: 'da-firmare' }), riga({ altroDocente: true })], null, mio).map(r => r.mia + '/' + r.come);`);
+  check(p.join() === 'true/nome,false/nome,true/icona,false/icona', 'di chi è la riga: prima ciò che indica DidUP (icona), cognome e nome solo quando DidUP non dice nulla', p.join());
+
+  // ------------------------------------------------------------------
+  console.log('\n[Firma ore di oggi]');
+  res = await run({}, 'firma-oggi', '10:12');
+  check(res.r.ok && res.log.signClicks.join() === '3A#1,3A#2,4B#3,5C#5' && res.asked.length === 1 && /3A 1ª, 2ª · 4B 3ª · 5C 5ª/.test(res.asked[0].q) &&
+    res.asked[0].yes === 'Firma 4 ore' && res.log.unsignAttempts === 0 && res.log.otherClicks === 0 && /Firmate le 4 ore di oggi: 3A 1ª, 2ª · 4B 3ª · 5C 5ª/.test(res.r.summary),
+    'firma tutte le ore di oggi, una classe alla volta, dopo una sola conferma con l\'elenco', stepsText(res) + ' = ' + (res.r.summary || res.r.error));
+  check(res.log.opened.join() === '3A#1,4B#3,5C#5' && res.log.homeClicks === 3, '…entrando una volta in ogni classe e tornando alla Home tra una classe e l\'altra', JSON.stringify(res.log.opened));
+  await shot('22-firma-ore-di-oggi');
+  res = await run({ signed: ['3A#1', '4B#3'] }, 'firma-oggi', '10:12');
+  check(res.r.ok && res.log.signClicks.join() === '3A#2,5C#5' && res.asked[0].yes === 'Firma 2 ore' && res.log.unsignAttempts === 0, 'salta le ore già firmate (mai un clic su un\'ora firmata)', stepsText(res));
+  res = await run({}, 'firma-oggi', '10:12', [false]);
+  check(res.r.ok && res.r.cancelled && res.log.signClicks.length === 0 && res.log.opened.length === 0, '«Non firmare» alla conferma: non entra in nessun registro e non firma nulla', res.r.summary);
+  res = await run({ signed: ['3A#1', '3A#2', '4B#3', '5C#5'] }, 'firma-oggi', '10:12');
+  check(res.r.ok && res.asked.length === 0 && res.log.signClicks.length === 0 && /già firmate/.test(res.r.summary), 'tutte già firmate: nessuna domanda e nessun clic', res.r.summary);
+  res = await run({ ...ART, righeAltrui: ['4B#3'] }, 'firma-oggi', '10:12');
+  check(!res.r.ok && res.log.signClicks.join() === '3A#1,3A#2,5C#5' && res.log.otherClicks === 0 && /Firmate 3 ore su 4 \(3A 1ª, 2ª · 5C 5ª\)/.test(res.r.error) && /4B 3ª ora: non trovo la tua riga/.test(res.r.error),
+    'un\'ora assegnata a un collega: firma le altre, non clicca quella e alla fine dice quale resta da firmare a mano', res.r.error);
+  res = await run({ ...ART }, 'firma-oggi', '10:12');
+  check(res.r.ok && res.log.signClicks.join() === '3A#1,3A#2,4B#3,5C#5' && res.log.otherClicks === 0, 'classe articolata: firma solo le tue righe', stepsText(res));
 
   res = await run({ start: 'editing' }, 'firma', '10:12');
   check(!res.r.ok && res.log.homeClicks === 0 && /Stai modificando una lezione/.test(res.r.error), 'lezione in modifica: non clicca «Home» e spiega perché', res.r.error);
@@ -299,6 +343,32 @@ try {
   t = await evaluate(`const h = document.querySelector('[data-argo-assistant="toolbar"]'); return { display: h ? h.style.display : 'assente', n: h ? h.shadowRoot.querySelectorAll('button.b').length : 0 };`);
   check(t.display === 'none' && t.n === 0, 'tolti entrambi: nessun pulsante nella barra', JSON.stringify(t));
   await evaluate(`await chrome.storage.local.set({ showFirma: true, showAppello: true }); await new Promise(r => setTimeout(r, 800));`);
+
+  // Modalità «Firma ore di oggi» scelta nelle impostazioni: stesso pulsante, altra scritta e altra azione
+  await evaluate(`await chrome.storage.local.set({ firmaMode: 'oggi' }); await new Promise(r => setTimeout(r, 900));`);
+  t = await tb(`const b = root.querySelector('[data-action=firma]'); return { n: root.querySelectorAll('button.b').length, label: b.getAttribute('aria-label'), tip: b.querySelector('.tip').textContent };`);
+  check(t.n === 2 && t.label === 'Firma ore di oggi (Argo DidUP Booster)' && /tutte le tue lezioni di oggi/.test(t.tip), 'modalità «Firma ore di oggi»: il pulsante cambia scritta appena cambiata l\'impostazione', JSON.stringify(t));
+  await tb(`root.querySelector('[data-action=firma]').click();`);
+  await sleep(1500);
+  t = await tb(`return { title: pr.querySelector('.title').textContent, q: pr.querySelector('.askbox').hidden ? null : pr.querySelector('.q').textContent, yes: pr.querySelector('.yes').textContent };`);
+  check(t.title === 'Firma ore di oggi' && /3A 2ª/.test(t.q || '') && t.yes === 'Firma', '…e avvia «Firma ore di oggi»: il pannello chiede conferma con l\'elenco delle ore', JSON.stringify(t));
+  await tb(`pr.querySelector('.yes').click();`);
+  for (let i = 0; i < 40; i++) { await sleep(300); if (await tb(`return !pr.querySelector('.result').hidden`)) break; }
+  t = await tb(`return { res: pr.querySelector('.result').textContent, log: window.__didup.signClicks.join() };`);
+  check(/Firmata l'ora di oggi: 3A 2ª/.test(t.res) && t.log === '3A#2', '…e dopo il «sì» firma', JSON.stringify(t));
+  await tb(`pr.querySelector('.x').click();`);
+  await evaluate(`await chrome.storage.local.set({ firmaMode: 'ora' }); await new Promise(r => setTimeout(r, 900));`);
+  t = await tb(`return root.querySelector('[data-action=firma]').getAttribute('aria-label')`);
+  check(t === 'Firma ora (Argo DidUP Booster)', 'tornando a «Firma ora» il pulsante torna quello di prima', t);
+
+  // Senza cognome e nome del docente Firma e Appello restano disattivati
+  await evaluate(`await chrome.storage.local.set({ docenteNome: '' }); await new Promise(r => setTimeout(r, 900));`);
+  t = await evaluate(`const h = document.querySelector('[data-argo-assistant="toolbar"]'); const r = h ? h.getBoundingClientRect() : { width: 0 }; return { w: r.width, n: h ? h.shadowRoot.querySelectorAll('button.b').length : 0 };`);
+  check(t.w === 0 && t.n === 0, 'manca il nome del docente nelle impostazioni: nessun pulsante Firma/Appello nel registro', JSON.stringify(t));
+  await evaluate(`await chrome.storage.local.set({ docenteNome: 'MARIO' }); await new Promise(r => setTimeout(r, 900));`);
+  t = await evaluate(`return document.querySelector('[data-argo-assistant="toolbar"]').shadowRoot.querySelectorAll('button.b').length`);
+  check(t === 2, '…e tornano appena viene inserito', t);
+  await navigate(oneLesson(slotNow), 1200);   // pagina nuova: l'ora firmata qui sopra torna da firmare
   t = await tb(`return [...root.querySelectorAll('button.b')].map(b => b.dataset.action).join() + '|' + host.style.display;`);
   check(t === 'firma,appello|', '…e rimessi', t);
 

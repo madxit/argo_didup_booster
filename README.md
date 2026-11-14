@@ -5,14 +5,14 @@
 Estensione per **Google Chrome** pensata per i docenti che usano il registro elettronico **Argo DidUP**. Con un clic:
 
 - **Accesso automatico.** L'estensione compila il codice scuola, spunta «Ricordami», sceglie SPID (con il tuo provider) o CIE e ti porta all'autenticazione. A te resta solo confermare con l'app del provider o con la CIE.
-- **Firma ora.** Un pulsante nella barra del registro trova la tua lezione leggendo gli orari dalla pagina e la firma. Nelle classi articolate e in compresenza firma la **tua** riga, non quella del collega. Se l'ora non è in corso, prima ti chiede il permesso.
+- **Firma ora** oppure **Firma ore di oggi.** Un pulsante nella barra del registro trova la tua lezione leggendo gli orari dalla pagina e la firma; se preferisci, firma in una volta tutte le tue ore della giornata. Nelle classi articolate e in compresenza firma la **tua** riga, non quella del collega. Se l'ora non è in corso, prima ti chiede il permesso.
 - **Appello.** Un pulsante nella barra del registro apre l'appello della lezione più vicina all'ora attuale, da qualsiasi schermata.
 - **Argomenti e compiti.** Mentre modifichi una lezione, inserisci con un clic gli argomenti (in *Attività svolta*) e i compiti (in *Compiti*) che hai preparato per ogni disciplina.
 - **Sessione sempre attiva.** Quando non usi il registro da qualche minuto, l'estensione ricarica la pagina e la sessione riparte, anche con la scheda in secondo piano. Mentre lavori non succede mai.
 
 Ogni funzione si può togliere dalle impostazioni. La prima volta che le incontri nel registro, una breve guida spiega cosa fanno.
 
-> Progetto indipendente e **non ufficiale**: non è collegato in alcun modo ad Argo Software né al Ministero dell'Istruzione e del Merito. Controlla sempre nel registro che firme e appelli siano corretti.
+> Progetto indipendente e **non ufficiale**: non è collegato in alcun modo ad Argo Software né al Ministero dell'Istruzione e del Merito, e viene fornito **senza alcuna garanzia**. Controlla sempre nel registro che firme e appelli siano corretti. Al primo avvio l'estensione chiede di leggere e accettare le [avvertenze d'uso](#avvertenze-duso): senza accettazione non funziona.
 
 ---
 
@@ -20,13 +20,15 @@ Ogni funzione si può togliere dalle impostazioni. La prima volta che le incontr
 
 1. [Requisiti](#requisiti)
 2. [Installazione](#installazione)
-3. [Prima configurazione](#prima-configurazione)
-4. [Uso quotidiano](#uso-quotidiano)
-5. [Guida alle funzionalità](#guida-alle-funzionalità)
-6. [Aggiornare l'estensione](#aggiornare-lestensione)
-7. [Problemi frequenti](#problemi-frequenti)
-8. [Privacy e permessi](#privacy-e-permessi)
-9. [Per chi sviluppa](#per-chi-sviluppa)
+3. [Avvertenze d'uso](#avvertenze-duso)
+4. [Prima configurazione](#prima-configurazione)
+5. [Uso quotidiano](#uso-quotidiano)
+6. [Guida alle funzionalità](#guida-alle-funzionalità)
+7. [Aggiornare l'estensione](#aggiornare-lestensione)
+8. [Disinstallare l'estensione](#disinstallare-lestensione)
+9. [Problemi frequenti](#problemi-frequenti)
+10. [Privacy e permessi](#privacy-e-permessi)
+11. [Per chi sviluppa](#per-chi-sviluppa)
 
 ---
 
@@ -40,7 +42,7 @@ Ogni funzione si può togliere dalle impostazioni. La prima volta che le incontr
 
 L'estensione non è sul Chrome Web Store: si installa da una cartella, come "estensione non pacchettizzata". Bastano pochi minuti.
 
-1. **Scarica l'ultima versione.** Apri la pagina dell'[**ultima release**](https://github.com/madxit/argo_didup_booster/releases/latest) e, sotto *Assets*, scarica **`argo_didup_booster-X.Y.Z.zip`**, dove `X.Y.Z` è la versione (es. `argo_didup_booster-1.2.0.zip`). Non serve *Source code*: contiene anche i file per gli sviluppatori.
+1. **Scarica l'ultima versione.** Apri la pagina dell'[**ultima release**](https://github.com/madxit/argo_didup_booster/releases/latest) e, sotto *Assets*, scarica **`argo_didup_booster-X.Y.Z.zip`**, dove `X.Y.Z` è la versione (es. `argo_didup_booster-1.3.0.zip`). Non serve *Source code*: contiene anche i file per gli sviluppatori.
 2. **Estrai il file zip** (doppio clic su Mac; su Windows tasto destro → *Estrai tutto*). Ottieni la cartella **`argo_didup_booster`**.
 3. **Sposta la cartella in una posizione che non cambierà nel tempo** e **non cancellarla dopo l'installazione**: Chrome legge i file direttamente da lì. Se la sposti o la rinomini, Chrome la considera un'estensione nuova e le impostazioni ripartono da zero. Consiglio:
    - crea una cartella **`Estensioni Chrome`** nella tua cartella personale: su Mac è quella con la casetta (nel Finder: *Vai → Inizio*), su Windows `C:\Users\<tuo nome>\`;
@@ -50,9 +52,27 @@ L'estensione non è sul Chrome Web Store: si installa da una cartella, come "est
 5. In alto a destra attiva **Modalità sviluppatore**.
 6. Premi **Carica estensione non pacchettizzata** e seleziona la cartella `argo_didup_booster` del passo 3, cioè quella che contiene il file `manifest.json`.
 7. Fissa l'icona nella barra: premi l'icona a forma di **puzzle** in alto a destra, poi la **puntina** accanto ad *Argo DidUP Booster*.
-8. Si apre da sola la pagina delle **Impostazioni**: continua con la [prima configurazione](#prima-configurazione).
+8. Si apre da sola la pagina delle **Impostazioni** con le [avvertenze d'uso](#avvertenze-duso): leggile e accettale, poi continua con la [prima configurazione](#prima-configurazione).
 
 > **Nota.** Lascia attiva la *Modalità sviluppatore*: Chrome la richiede per le estensioni installate da una cartella. Può capitare che mostri un avviso sulle estensioni in modalità sviluppatore: è normale.
+
+## Avvertenze d'uso
+
+Al primo avvio (e al primo aggiornamento da una versione precedente alla 1.3.0) la pagina delle Impostazioni mostra le **avvertenze e condizioni d'uso**. Finché non le accetti **l'estensione non fa nulla**: nessun accesso automatico, nessun pulsante nel registro, nessun mantenimento della sessione; l'icona mostra un punto esclamativo rosso e un clic riapre le avvertenze.
+
+<img src="docs/img/avvertenze.png" alt="Avvertenze e condizioni d'uso al primo avvio" width="640">
+
+In breve, dicono che:
+
+- è un software **non ufficiale**: non è di Argo Software, né del Ministero dell'Istruzione e del Merito, né della tua scuola;
+- funziona «così com'è», **senza alcuna garanzia**: se Argo cambia le sue pagine può smettere di funzionare o sbagliare;
+- lo sviluppatore **non risponde** di errori, malfunzionamenti o danni derivanti dall'uso (o dal mancato funzionamento) dell'estensione;
+- la responsabilità del registro resta tua: **dopo ogni azione controlla il risultato**, aiutandoti con l'elenco dei passi che si apre sotto i pulsanti;
+- i problemi vanno segnalati nella sezione [**Issues**](https://github.com/madxit/argo_didup_booster/issues) del progetto su GitHub.
+
+Per accettare spunta la casella *Ho letto e compreso…* e premi **Accetto e attivo l'estensione**. Con **Non accetto** l'estensione resta disattivata, le impostazioni si bloccano e compaiono le istruzioni per [disinstallarla](#disinstallare-lestensione).
+
+Puoi rileggerle quando vuoi in *Impostazioni → Avvertenze d'uso → Rileggi le avvertenze*. Da lì, se non le condividi più, **Non le accetto più** ritira l'accettazione: l'estensione si disattiva subito (le impostazioni non vengono cancellate) e ti viene proposto di disinstallarla. L'accettazione vale per il computer su cui la dai: non fa parte del file di esportazione delle impostazioni.
 
 ## Prima configurazione
 
@@ -65,7 +85,7 @@ Le impostazioni si aprono con un clic sull'icona quando sei già nel registro, o
 3. **Provider SPID**: lo stesso che scegli nella pagina del Ministero (Poste ID, Aruba ID, InfoCert ID, …). Con *"Scelgo ogni volta"* l'estensione apre l'elenco dei provider e lascia scegliere a te.
 4. **Accesso automatico**: con l'opzione attiva l'accesso parte appena si apre la pagina di accesso di Argo. Con l'opzione spenta parte solo quando premi l'icona.
 5. **Spunta «Ricordami»** (attiva in modo predefinito): spunta la casella *Ricordami* della pagina di accesso di Argo. Senza, dopo circa un'ora Argo chiede di nuovo SPID o CIE; con *Ricordami* rinnova l'accesso da solo. **Spegnila su un computer usato anche da altri**, per esempio il PC dell'aula.
-6. **Cognome e nome** (facoltativo): scrivilo come compare nella colonna *Docente* del registro (es. `ROSSI MARIO`). *Firma ora* lo usa per riconoscere la tua riga nelle classi articolate e in compresenza, se DidUP non lo indica da solo.
+6. **Cognome** e **Nome** del docente (in due campi separati): scrivili come compaiono nella colonna *Docente* del registro (es. `ROSSI MARIO` → cognome `ROSSI`, nome `MARIO`). Maiuscole, accenti e apostrofi non contano. Servono a riconoscere le tue righe: **senza, Firma e Appello restano disattivati** e i loro pulsanti non compaiono nel registro. Se arrivi da una versione precedente, il vecchio campo unico viene diviso da solo: controlla che la divisione sia giusta.
 
 ## Uso quotidiano
 
@@ -107,8 +127,10 @@ Con il pulsante **Firma ora**, da qualsiasi schermata del registro, l'estensione
 
 **Classi articolate e compresenze.** Nella stessa ora possono esserci più righe, una per docente. L'estensione firma solo la riga che è tua e ignora quelle dei colleghi, anche se sono già firmate. La riconosce, in quest'ordine:
 - dai dati di DidUP (il docente collegato);
-- dal **cognome e nome** nella colonna *Docente*;
-- dall'icona: quella arancione *da firmare* c'è solo sulle tue righe.
+- dall'icona, che DidUP disegna con la stessa regola: quella arancione *da firmare* c'è solo sulle tue righe, mentre su quelle dei colleghi c'è scritto *«… un altro docente»*;
+- solo se DidUP non dice nulla, dal **cognome** e dal **nome** scritti nelle Impostazioni, confrontati con la colonna *Docente* (Argo scrive `COGNOME NOME`; l'estensione accetta anche `NOME COGNOME`, i secondi nomi e i cognomi composti).
+
+Cognome e nome non possono mai escludere una riga che DidUP indica come tua: fino alla 1.2.1 succedeva, e bastava averli scritti in modo diverso da Argo perché *Firma ora* non trovasse la riga.
 
 Se la Home mostra l'ora in corso come già firmata, l'estensione controlla nel registro che la firma sia davvero tua. Se non lo è, firma la tua riga. I passi indicano di chi è ogni riga:
 
@@ -129,6 +151,19 @@ Se la Home mostra l'ora in corso come già firmata, l'estensione controlla nel r
 
 Sotto i pulsanti si apre un pannello che mostra passo per passo cosa è stato cliccato e perché è stata scelta quella lezione. Si chiude con la × o con un clic in qualsiasi punto fuori dal pannello.
 
+### Firma ore di oggi
+
+In **Impostazioni → Funzioni nel registro**, nella riga della firma, puoi scegliere che cosa fa il pulsante: **Firma ora** (come descritto sopra) oppure **Firma ore di oggi**. Il pulsante resta uno solo: cambia la scritta che compare al passaggio del mouse.
+
+Con *Firma ore di oggi* l'estensione:
+
+1. clicca **Home** e legge le tue lezioni di oggi;
+2. ti mostra l'**elenco delle ore non ancora firmate** (es. *3A 1ª, 2ª · 4B 3ª · 5C 5ª*) e chiede una sola conferma: con **Non firmare**, o chiudendo il pannello, non tocca nulla;
+3. entra nel registro di ogni classe, una alla volta, e clicca l'icona arancione *da firmare* delle **tue** righe, con le stesse regole di *Firma ora* (mai un'ora già firmata, mai la riga di un collega);
+4. alla fine riepiloga le ore firmate. Se un'ora non si può firmare (per esempio nel registro è assegnata a un collega) la salta, firma le altre e ti dice quale resta da firmare a mano.
+
+Tieni presente che firma anche le ore non ancora iniziate: usala se nella tua scuola è permesso firmare in anticipo.
+
 ### Appello
 
 Il pulsante **Appello** clicca *Home* e sceglie la lezione più coerente con l'ora attuale. Per primo cerca quella **in corso**. Se non c'è, prende quella che **inizia entro 15 minuti**, poi quella **appena finita**, infine la prossima. Poi entra nel registro di quella classe e apre l'appello.
@@ -141,7 +176,9 @@ Quando qualcosa non va, il passo in **rosso** dice esattamente cosa è stato cli
 
 ### Scegliere le funzioni e rivedere la guida
 
-Nelle **Impostazioni → Funzioni nel registro** scegli quali funzioni l'estensione aggiunge al registro: **Firma ora**, **Appello**, **Argomenti e compiti**. Quelle spente spariscono subito, anche dal registro già aperto; se le spegni entrambe, nella barra di DidUP non resta nessun pulsante.
+Nelle **Impostazioni → Funzioni nel registro** scegli quali funzioni l'estensione aggiunge al registro: la **firma**, l'**Appello**, **Argomenti e compiti**. Quelle spente spariscono subito, anche dal registro già aperto; se spegni firma e Appello, nella barra di DidUP non resta nessun pulsante. Nella riga della firma scegli anche la modalità: **Firma ora** oppure [**Firma ore di oggi**](#firma-ore-di-oggi).
+
+Firma e Appello richiedono **cognome e nome del docente** (*Scuola e accesso*): finché mancano, i due interruttori sono bloccati e un avviso lo ricorda.
 
 Nella stessa sezione ci sono le caselle della **guida**: una per i pulsanti della barra, una per *Argomenti e compiti*. Dopo che la guida è stata mostrata la casella si spegne da sola; spuntala per rivederla la prossima volta.
 
@@ -215,7 +252,7 @@ La riga di stato sotto l'interruttore indica l'ultimo controllo, quando ci sarà
 
 ## Versione e informazioni
 
-In cima alle **Impostazioni**, accanto al nome, c'è la **versione** installata (es. `v1.2.0`). Ti serve quando chiedi aiuto o devi controllare di avere l'ultima versione: confrontala con quella dell'[ultima release](https://github.com/madxit/argo_didup_booster/releases/latest). Il pulsante **GitHub** in alto a destra (e il link in fondo alla pagina) apre il progetto, dove trovi gli aggiornamenti e puoi segnalare un problema.
+In cima alle **Impostazioni**, accanto al nome, c'è la **versione** installata (es. `v1.3.0`). Ti serve quando chiedi aiuto o devi controllare di avere l'ultima versione: confrontala con quella dell'[ultima release](https://github.com/madxit/argo_didup_booster/releases/latest). Il pulsante **GitHub** in alto a destra (e il link in fondo alla pagina) apre il progetto, dove trovi gli aggiornamenti e puoi segnalare un problema.
 
 ## Aggiornare l'estensione
 
@@ -223,20 +260,32 @@ In cima alle **Impostazioni**, accanto al nome, c'è la **versione** installata 
 2. Premi l'icona dell'estensione oppure apri le Impostazioni. L'estensione si accorge che i file sono cambiati e **si ricarica da sola**, poi prosegue con quello che stavi facendo. Nelle schede del registro già aperte i nuovi pulsanti compaiono da soli; se non li vedi, ricarica la pagina.
 3. Se non succede, vai su `chrome://extensions` e premi **Ricarica** (la freccia circolare) su *Argo DidUP Booster*.
 
+## Disinstallare l'estensione
+
+Se non ti serve più, o se non accetti le [avvertenze d'uso](#avvertenze-duso):
+
+1. fai clic con il **tasto destro sull'icona** di Argo DidUP Booster nella barra di Chrome (se non la vedi, apri prima il menu a forma di puzzle), scegli **Rimuovi da Chrome…** e conferma con **Rimuovi**;
+2. oppure apri `chrome://extensions` (menu ⋮ → *Estensioni* → *Gestisci estensioni*), cerca *Argo DidUP Booster* e premi **Rimuovi**;
+3. se non hai accettato le avvertenze, nelle Impostazioni trovi anche il pulsante **Disinstalla ora…** (Chrome chiede conferma).
+
+Con la disinstallazione Chrome cancella le impostazioni dell'estensione: se vuoi conservarle, prima esportale (*Impostazioni → Esporta / Importa*). Dopo puoi eliminare anche la cartella `argo_didup_booster`.
+
 ## Problemi frequenti
 
 | Problema | Cosa fare |
 |---|---|
+| L'icona ha un punto esclamativo e si aprono sempre le Impostazioni | Non hai ancora accettato le [avvertenze d'uso](#avvertenze-duso) (oppure manca il codice scuola). Leggile e accettale: fino ad allora l'estensione non fa nulla. |
+| Dopo l'aggiornamento sono spariti i pulsanti e l'accesso automatico | Dalla 1.3.0 vanno accettate le [avvertenze d'uso](#avvertenze-duso): apri le Impostazioni con un clic sull'icona. |
 | Al clic sull'icona non succede nulla | Vai su `chrome://extensions` e premi **Ricarica** sull'estensione. Controlla che la *Modalità sviluppatore* sia attiva. |
 | Si aprono le Impostazioni invece di Argo | Manca il **codice scuola**: inseriscilo. |
 | Nella pagina del Ministero non viene scelto il provider | Controlla di aver scelto il **Provider SPID** nelle Impostazioni. Con *"Scelgo ogni volta"* l'elenco viene aperto e scegli tu. |
 | «Accesso automatico in pausa» | L'ultimo tentativo non è andato a buon fine: premi **Riprova** o l'icona. |
-| *Firma ora* dice che non trova la tua riga | Nelle classi articolate l'estensione cerca la riga con il tuo nome. Scrivi **Cognome e nome** nelle Impostazioni come compare nella colonna *Docente* del registro. |
+| *Firma ora* dice che non trova la tua riga | Il passo in rosso elenca chi c'è nelle righe di quell'ora e cosa indica DidUP. Se l'ora è assegnata a un collega, è una supplenza o non è nel tuo orario, DidUP non mostra l'icona arancione e va firmata a mano. Se la riga è tua ma DidUP non lo indica, controlla **Cognome** e **Nome** nelle Impostazioni (come nella colonna *Docente*). Se non torna, [segnalalo](https://github.com/madxit/argo_didup_booster/issues) copiando il testo del passo in rosso. |
 | *Firma ora* ha scelto un'ora che non è in corso | Ti chiede sempre conferma: rispondi **Non firmare** se non è quella giusta. Controlla anche che l'ora del computer sia corretta. |
 | «Il pulsante Appello è disattivato» | In DidUP l'appello si apre dopo aver firmato l'ora: usa prima **Firma ora**. |
 | Dopo circa un'ora Argo chiede di nuovo SPID o CIE | Controlla che in *Impostazioni → Scuola e accesso* sia attiva **Spunta «Ricordami»** e rifai l'accesso una volta: da lì in poi Argo rinnova l'accesso da solo. La riga di stato in *Impostazioni → Sessione* dice quando e perché la sessione è scaduta. |
 | Il registro si è ricaricato da solo | È il mantenimento della sessione: succede solo dopo 10 minuti senza usarlo e mai con una finestra di DidUP aperta. Puoi spegnerlo in *Impostazioni → Sessione*. |
-| Non vedo i pulsanti Firma e Appello | Controlla che siano attivi in *Impostazioni → Funzioni nel registro*. Compaiono nella barra in alto del registro dopo l'accesso; se la barra è nascosta (schermata ingrandita) stanno in basso a destra. Prova a cambiare posizione o a ricaricare la pagina. |
+| Non vedo i pulsanti Firma e Appello | Controlla di aver scritto **Cognome** e **Nome** in *Impostazioni → Scuola e accesso*: senza, restano disattivati. Poi controlla che siano attivi in *Impostazioni → Funzioni nel registro*. Compaiono nella barra in alto del registro dopo l'accesso; se la barra è nascosta (schermata ingrandita) stanno in basso a destra. Prova a cambiare posizione o a ricaricare la pagina. |
 | Il pulsante «Argomenti e compiti» non compare | Controlla che sia attivo in *Impostazioni → Funzioni nel registro*. Compare solo nella schermata di **modifica** di una lezione, a destra sulla riga di *Registro di classe · Docenti ed alunni*. |
 | Voglio rivedere la guida | Spunta la casella della guida in *Impostazioni → Funzioni nel registro*. |
 | Un passo in rosso nel pannello | Leggi cosa non è stato trovato e controlla di essere nel registro DidUP. Se DidUP è cambiato, segnala il messaggio su [GitHub](https://github.com/madxit/argo_didup_booster/issues). |
